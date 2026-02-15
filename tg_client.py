@@ -1,6 +1,5 @@
 import logging
 import re
-from typing import Optional
 
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -95,7 +94,7 @@ def format_issue_event(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def format_generic(title: str, body: str, url: Optional[str] = None) -> str:
+def format_generic(title: str, body: str, url: str | None = None) -> str:
     lines = [f"*{escape_md(title)}*", escape_md(body)]
     if url:
         lines.append(md_link("Open", url))
