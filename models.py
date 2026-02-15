@@ -1,7 +1,9 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
 class GenericWebhookPayload(BaseModel):
     title: str
     body: str
-    url: str | None = None
+    url: Optional[str] = None

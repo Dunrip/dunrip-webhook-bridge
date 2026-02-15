@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from config import settings
 from models import GenericWebhookPayload
 from security import verify_generic_token, verify_github_signature
-from telegram import (
+from tg_client import (
     format_generic,
     format_issue_event,
     format_pr_event,
