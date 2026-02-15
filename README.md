@@ -137,6 +137,13 @@ uvicorn main:app --host 0.0.0.0 --port 8000
   - Max replay attempts: `MAX_REPLAY_ATTEMPTS` (default `10`), then status moves to `dead_letter`
   - Replay operation idempotency via `Idempotency-Key` header
 
+## Security hygiene
+
+- CI dependency scanning: [`.github/workflows/security-deps.yml`](.github/workflows/security-deps.yml) (uses `pip-audit`, fails on known vulnerabilities).
+- CI secrets scanning: [`.github/workflows/security-secrets.yml`](.github/workflows/security-secrets.yml) (uses `gitleaks`, fails on findings).
+- Gitleaks allowlist/baseline config: [`.gitleaks.toml`](.gitleaks.toml) (keep exceptions minimal and documented).
+- Incident response runbook: [`docs/runbooks/security-incident.md`](docs/runbooks/security-incident.md).
+
 ## Testing
 
 ```bash
