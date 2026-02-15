@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     github_webhook_secret: str
     generic_webhook_token: str
     admin_api_key: str = ""
+    admin_api_keys: str = ""  # CSV map: key:scope,key2:scope
+    admin_api_keys_active: str = ""  # Rotation active scoped keys
+    admin_api_keys_previous: str = ""  # Rotation previous scoped keys
+    admin_key_rotation_grace_seconds: int = 604800  # 7 days
+    admin_key_rotation_started_at: str = ""  # unix timestamp or ISO8601
     log_level: str = "INFO"
 
     # Security / Limits

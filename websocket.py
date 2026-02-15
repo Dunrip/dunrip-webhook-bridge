@@ -13,8 +13,12 @@ from typing import Any
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from config import settings
-from observability import audit_log, fingerprint_api_key
-from security import get_websocket_client_ip, is_ws_ip_allowed, validate_admin_api_key_headers
+from observability import audit_log
+from security import (
+    authenticate_admin_api_key_headers,
+    get_websocket_client_ip,
+    is_ws_ip_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +123,6 @@ async def stream_logs(
     repo: str | None = Query(default=None),
 ) -> None:
     client_ip = get_websocket_client_ip(ws)
-    provided_key = ws.headers.get("x-api-key")
-    actor = fingerprint_api_key(provided_key)
 
     if not is_ws_ip_allowed(client_ip):
         audit_log(
@@ -131,14 +133,16 @@ async def stream_logs(
             auth_result="deny",
             delivery_id=None,
             status="ws_allowlist_denied",
-            actor=actor if provided_key else "api-key",
+            actor_key_id="api-key",
+            reason="ws_allowlist_denied",
         )
         logger.warning("WebSocket stream blocked by IP allowlist")
         await ws.close(code=1008, reason="ip_allowlist_denied")
         return
 
-    auth_ok = validate_admin_api_key_headers(ws.headers)
-    if not auth_ok:
+    auth = authenticate_admin_api_key_headers(ws.headers, required_scope="admin")
+
+    if not auth.ok:
         audit_log(
             logger,
             action="WS /stream/logs",
@@ -147,11 +151,15 @@ async def stream_logs(
             auth_result="deny",
             delivery_id=None,
             status="auth_failed",
-            actor=actor if provided_key else "api-key",
+            actor_key_id=auth.actor_key_id,
+            reason=auth.reason,
         )
-        logger.warning("WebSocket stream auth failed")
+        logger.warning("WebSocket stream auth failed reason=%s", auth.reason)
         await ws.close(code=1008)
         return
+
+    if auth.used_previous_key:
+        logger.warning("WebSocket stream accepted previous admin key actor_key_id=%s", auth.actor_key_id)
 
     allowed, reason = await broadcaster.allow_connect(client_ip)
     if not allowed:
@@ -163,7 +171,8 @@ async def stream_logs(
             auth_result="allow",
             delivery_id=None,
             status=reason,
-            actor=actor,
+            actor_key_id=auth.actor_key_id,
+            reason="ok",
         )
         await ws.close(code=1013)
         return
@@ -177,7 +186,8 @@ async def stream_logs(
         auth_result="allow",
         delivery_id=None,
         status="connected",
-        actor=actor,
+        actor_key_id=auth.actor_key_id,
+        reason="ok",
     )
     client = _Client(ws=ws, event_type=event_type, status=status, repo=repo, ip=client_ip)
     await broadcaster.connect(client)

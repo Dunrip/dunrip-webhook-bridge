@@ -33,7 +33,7 @@ Required `.env` values:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `GITHUB_WEBHOOK_SECRET`
-- `ADMIN_API_KEY`
+- `ADMIN_API_KEYS` (preferred, scoped) **or** legacy `ADMIN_API_KEY`
 - `GENERIC_WEBHOOK_TOKEN` (required by current app config; keep a random value if generic route is unused)
 
 ### GitHub webhook values (exact)
@@ -58,7 +58,7 @@ Use the included blueprint:
    - `TELEGRAM_CHAT_ID`
    - `GITHUB_WEBHOOK_SECRET`
    - `GENERIC_WEBHOOK_TOKEN`
-   - `ADMIN_API_KEY`
+   - `ADMIN_API_KEYS` (preferred) or `ADMIN_API_KEY` (legacy)
 5. Deploy.
 6. Confirm health check passes at `/health`.
 
@@ -97,12 +97,16 @@ Checks performed:
   - Fix: set same secret in GitHub webhook settings and `.env`/Render.
 
 - **Admin endpoint returns 401**
-  - Cause: missing `X-API-Key` or wrong `ADMIN_API_KEY`.
-  - Fix: send `X-API-Key: <ADMIN_API_KEY>`.
+  - Cause: missing/invalid key, expired previous key, or wrong scope.
+  - Fix: send `X-API-Key` (or `Authorization: Bearer ...`) using a key from `ADMIN_API_KEYS`/`ADMIN_API_KEYS_ACTIVE` with required scope.
+
+- **Admin endpoint returns 403**
+  - Cause: key scope is insufficient for endpoint.
+  - Fix: use a `replay`/`admin` scoped key for replay endpoints, and `admin` key for `/stream/logs`.
 
 - **Admin endpoint returns 503**
-  - Cause: `ADMIN_API_KEY` not configured.
-  - Fix: set `ADMIN_API_KEY` and restart.
+  - Cause: no admin key configuration found.
+  - Fix: set `ADMIN_API_KEYS` (preferred) or legacy `ADMIN_API_KEY` and restart.
 
 ---
 
@@ -123,10 +127,18 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-## Hardening (v1.1)
+## Hardening (v1.2)
 
+- **Scoped admin keys**:
+  - `read` for read-only admin endpoints (`GET /deliveries`)
+  - `replay` for replay endpoints (`POST /deliveries/{id}/replay`, `POST /deliveries/replay-all`) and read-only access
+  - `admin` for full access (including `WS /stream/logs`)
+- **Key rotation support**:
+  - `ADMIN_API_KEYS_ACTIVE`, `ADMIN_API_KEYS_PREVIOUS`
+  - `ADMIN_KEY_ROTATION_STARTED_AT`, `ADMIN_KEY_ROTATION_GRACE_SECONDS`
+  - Previous keys are accepted only during grace window and emit warnings when used.
 - **Admin audit trail** for `/deliveries`, `/deliveries/{id}/replay`, `/deliveries/replay-all`, and `/stream/logs` WebSocket auth attempts.
-- Structured audit fields include: `action`, `request_id`, `client_ip`, `auth_result`, `delivery_id`, `status`, `actor` (API key fingerprint; no secrets logged).
+- Structured audit fields include: `action`, `request_id`, `client_ip`, `auth_result`, `delivery_id`, `status`, `actor_key_id`, and `reason` (no raw keys logged).
 - **Endpoint-specific limits**:
   - `RATE_LIMIT_ADMIN_PER_MINUTE` (default `20`)
   - `WS_CONNECTS_PER_MINUTE` (default `10`)
