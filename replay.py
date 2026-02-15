@@ -12,13 +12,37 @@ from config import settings
 from exceptions import ValidationError
 from formatters import get_formatter
 from observability import audit_log, fingerprint_api_key
-from security import get_client_ip, verify_admin_api_key
+from security import get_client_ip, is_admin_ip_allowed, verify_admin_api_key
 from storage import Storage
 from tg_client import TelegramSendError, format_generic, send_message
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["replay"])
+async def verify_admin_ip_allowlist(request: Request) -> str:
+    client_ip = get_client_ip(request)
+    if is_admin_ip_allowed(client_ip):
+        return "ok"
+
+    actor = _actor_from_request(request)
+    request_id = getattr(request.state, "request_id", "-")
+    action = f"{request.method} {request.url.path}"
+    audit_log(
+        logger,
+        action=action,
+        request_id=request_id,
+        client_ip=client_ip,
+        auth_result="deny",
+        status="admin_allowlist_denied",
+        actor=actor,
+    )
+    raise ValidationError(
+        "Client IP is not allowed for admin endpoints",
+        error_code="ADMIN_IP_NOT_ALLOWED",
+        status_code=403,
+    )
+
+
+router = APIRouter(tags=["replay"], dependencies=[Depends(verify_admin_ip_allowlist)])
 
 
 def _get_storage(request: Request) -> Storage:

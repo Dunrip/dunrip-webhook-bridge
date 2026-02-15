@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from functools import partial
 
 import anyio
-from fastapi import Header, Request
+from fastapi import Header, Request, WebSocket
 
 from config import settings
 from exceptions import AuthenticationError, ValidationError
@@ -23,26 +23,40 @@ from observability import audit_log, fingerprint_api_key
 logger = logging.getLogger(__name__)
 
 
-def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Parse configured trusted proxy CIDR ranges.
-
-    Returns:
-        A list of trusted IPv4/IPv6 networks. Invalid entries are skipped.
-    """
-    raw = (settings.trusted_proxies or "").strip()
-    if not raw:
+def _parse_networks(
+    raw: str,
+    setting_name: str,
+) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Parse a comma-separated list of IP/CIDR entries into network objects."""
+    value = (raw or "").strip()
+    if not value:
         return []
 
     networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for item in raw.split(","):
+    for item in value.split(","):
         candidate = item.strip()
         if not candidate:
             continue
         try:
             networks.append(ipaddress.ip_network(candidate, strict=False))
         except ValueError:
-            logger.warning("Ignoring invalid TRUSTED_PROXIES entry: %s", candidate)
+            logger.warning("Ignoring invalid %s entry: %s", setting_name, candidate)
     return networks
+
+
+def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    return _parse_networks(settings.trusted_proxies, "TRUSTED_PROXIES")
+
+
+def _admin_allowlist_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    return _parse_networks(settings.admin_ip_allowlist, "ADMIN_IP_ALLOWLIST")
+
+
+def _ws_allowlist_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    ws_raw = (settings.ws_ip_allowlist or "").strip()
+    if ws_raw:
+        return _parse_networks(ws_raw, "WS_IP_ALLOWLIST")
+    return _admin_allowlist_networks()
 
 
 def _is_trusted_proxy(
@@ -57,21 +71,7 @@ def _is_trusted_proxy(
     return any(ip_obj in network for network in trusted_networks)
 
 
-def get_client_ip(request: Request) -> str:
-    """Determine the effective client IP address.
-
-    If no trusted proxy networks are configured, the direct socket IP is used.
-    When the direct peer is trusted, the rightmost X-Forwarded-For value is
-    considered the client IP.
-
-    Args:
-        request: Incoming FastAPI request.
-
-    Returns:
-        Best-effort client IP address string.
-    """
-    direct_ip = request.client.host if request.client else "unknown"
-
+def _resolve_effective_client_ip(direct_ip: str, forwarded_for: str | None) -> str:
     trusted_networks = _trusted_proxy_networks()
     if not trusted_networks:
         return direct_ip
@@ -79,7 +79,6 @@ def get_client_ip(request: Request) -> str:
     if not _is_trusted_proxy(direct_ip, trusted_networks):
         return direct_ip
 
-    forwarded_for = request.headers.get("x-forwarded-for")
     if not forwarded_for:
         return direct_ip
 
@@ -95,6 +94,32 @@ def get_client_ip(request: Request) -> str:
         return direct_ip
 
     return candidate_ip
+
+
+def get_client_ip(request: Request) -> str:
+    """Determine the effective client IP address for HTTP requests."""
+    direct_ip = request.client.host if request.client else "unknown"
+    return _resolve_effective_client_ip(direct_ip, request.headers.get("x-forwarded-for"))
+
+
+def get_websocket_client_ip(ws: WebSocket) -> str:
+    """Determine the effective client IP address for websocket connections."""
+    direct_ip = ws.client.host if ws.client else "unknown"
+    return _resolve_effective_client_ip(direct_ip, ws.headers.get("x-forwarded-for"))
+
+
+def is_admin_ip_allowed(client_ip: str) -> bool:
+    networks = _admin_allowlist_networks()
+    if not networks:
+        return True
+    return _is_trusted_proxy(client_ip, networks)
+
+
+def is_ws_ip_allowed(client_ip: str) -> bool:
+    networks = _ws_allowlist_networks()
+    if not networks:
+        return True
+    return _is_trusted_proxy(client_ip, networks)
 
 
 def _compute_signature(body: bytes, secret: str) -> str:

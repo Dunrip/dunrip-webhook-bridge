@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # Proxy / client IP extraction
     trusted_proxies: str = ""  # Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For
 
+    # Network boundary controls for admin/replay/websocket endpoints
+    admin_ip_allowlist: str = ""  # Comma-separated IPs/CIDRs; empty disables allowlist
+    ws_ip_allowlist: str = ""  # Optional websocket-specific allowlist; falls back to admin_ip_allowlist
+
     # Multi-destination routing
     routes_yaml: str = ""  # Path to YAML routing config or inline YAML
 
