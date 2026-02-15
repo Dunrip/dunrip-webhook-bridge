@@ -1,0 +1,128 @@
+#!/bin/sh
+set -eu
+
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+ENV_FILE=".env"
+
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+
+fail() {
+  echo "❌ $1" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+need_cmd curl
+need_cmd python3
+
+fetch_json() {
+  url="$1"
+  body_file="$2"
+  code=$(curl -sS -o "$body_file" -w "%{http_code}" "$url") || return 1
+  [ "$code" = "200" ] || return 2
+  return 0
+}
+
+echo "Running smoke checks against $BASE_URL"
+
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT INT TERM
+
+health_file="$tmp_dir/health.json"
+fetch_json "$BASE_URL/health" "$health_file" || fail "/health check failed (expected HTTP 200)."
+python3 - "$health_file" <<'PY' || fail "/health response did not match expected shape"
+import json, sys
+obj = json.load(open(sys.argv[1], encoding='utf-8'))
+assert obj.get('status') == 'ok', obj
+PY
+
+echo "✅ /health"
+
+deep_file="$tmp_dir/deep.json"
+deep_code=$(curl -sS -o "$deep_file" -w "%{http_code}" "$BASE_URL/health/deep") || fail "/health/deep request failed"
+python3 - "$deep_file" "$deep_code" <<'PY' || fail "/health/deep response invalid"
+import json, sys
+obj = json.load(open(sys.argv[1], encoding='utf-8'))
+code = int(sys.argv[2])
+if code not in (200, 503):
+    raise AssertionError(f"unexpected status code: {code}")
+if 'status' not in obj or 'circuit_breaker' not in obj:
+    raise AssertionError(obj)
+PY
+if [ "$deep_code" = "200" ]; then
+  echo "✅ /health/deep"
+else
+  echo "⚠️  /health/deep returned 503 (service degraded). Check TELEGRAM_BOT_TOKEN connectivity."
+fi
+
+metrics_file="$tmp_dir/metrics.txt"
+metrics_code=$(curl -sS -o "$metrics_file" -w "%{http_code}" "$BASE_URL/metrics") || fail "/metrics request failed"
+[ "$metrics_code" = "200" ] || fail "/metrics returned HTTP $metrics_code"
+grep -q "webhook_requests_total" "$metrics_file" || fail "/metrics missing webhook_requests_total"
+echo "✅ /metrics"
+
+[ -n "${GITHUB_WEBHOOK_SECRET:-}" ] || fail "GITHUB_WEBHOOK_SECRET is required for webhook signature smoke test"
+
+github_payload_file="$tmp_dir/github-payload.json"
+cat > "$github_payload_file" <<'JSON'
+{"zen":"Keep it logically awesome.","hook_id":1}
+JSON
+
+github_sig=$(python3 - "$github_payload_file" "$GITHUB_WEBHOOK_SECRET" <<'PY'
+import hashlib, hmac, pathlib, sys
+payload = pathlib.Path(sys.argv[1]).read_bytes()
+secret = sys.argv[2].encode()
+print('sha256=' + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)
+
+github_resp_file="$tmp_dir/github-resp.json"
+github_code=$(curl -sS -o "$github_resp_file" -w "%{http_code}" \
+  -X POST "$BASE_URL/webhook/github" \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: ping" \
+  -H "X-GitHub-Delivery: smoke-test-delivery" \
+  -H "X-Hub-Signature-256: $github_sig" \
+  --data-binary "@$github_payload_file") || fail "GitHub webhook smoke request failed"
+
+[ "$github_code" = "200" ] || fail "GitHub webhook returned HTTP $github_code"
+python3 - "$github_resp_file" <<'PY' || fail "GitHub webhook response invalid"
+import json, sys
+obj = json.load(open(sys.argv[1], encoding='utf-8'))
+assert obj.get('status') == 'pong', obj
+PY
+
+echo "✅ /webhook/github signature + ping"
+
+if [ -n "${SMOKE_TEST_ADMIN:-}" ] || [ -n "${ADMIN_API_KEY:-}" ]; then
+  unauth_code=$(curl -sS -o "$tmp_dir/admin-unauth.json" -w "%{http_code}" "$BASE_URL/deliveries") || fail "Admin unauth request failed"
+  [ "$unauth_code" = "401" ] || fail "Expected /deliveries without API key to return 401, got $unauth_code"
+
+  if [ -z "${ADMIN_API_KEY:-}" ]; then
+    fail "SMOKE_TEST_ADMIN is enabled but ADMIN_API_KEY is missing"
+  fi
+
+  auth_code=$(curl -sS -o "$tmp_dir/admin-auth.json" -w "%{http_code}" \
+    -H "X-API-Key: $ADMIN_API_KEY" \
+    "$BASE_URL/deliveries") || fail "Admin auth request failed"
+  [ "$auth_code" = "200" ] || fail "Expected /deliveries with API key to return 200, got $auth_code"
+
+  python3 - "$tmp_dir/admin-auth.json" <<'PY' || fail "Admin response shape invalid"
+import json, sys
+obj = json.load(open(sys.argv[1], encoding='utf-8'))
+if 'deliveries' not in obj or 'total' not in obj:
+    raise AssertionError(obj)
+PY
+
+  echo "✅ admin endpoint auth checks"
+fi
+
+echo "🎉 Smoke test passed"

@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: webhook-bridge
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GENERIC_WEBHOOK_TOKEN
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: STORAGE_BACKEND
+        value: memory
+      - key: RATE_LIMIT_BACKEND
+        value: memory
+
+# Optional Redis (uncomment if you want persistent storage/rate limits):
+# services:
+#   - type: redis
+#     name: webhook-bridge-redis
+#     ipAllowList: []
+#
+# Then set these env vars on the web service:
+#   STORAGE_BACKEND=redis
+#   RATE_LIMIT_BACKEND=redis
+#   REDIS_URL=redis://red-xxxx:6379/0
