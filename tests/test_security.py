@@ -131,7 +131,8 @@ def test_verify_generic_token_invalid(monkeypatch) -> None:
 
 
 def test_verify_admin_api_key_valid_x_api_key(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
     client = _build_client()
 
     response = client.get("/admin", headers={"X-API-Key": "adminkey"})
@@ -141,7 +142,8 @@ def test_verify_admin_api_key_valid_x_api_key(monkeypatch) -> None:
 
 
 def test_verify_admin_api_key_valid_authorization_bearer(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
     client = _build_client()
 
     response = client.get("/admin", headers={"Authorization": "Bearer adminkey"})
@@ -151,7 +153,8 @@ def test_verify_admin_api_key_valid_authorization_bearer(monkeypatch) -> None:
 
 
 def test_verify_admin_api_key_missing(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
     client = _build_client()
 
     response = client.get("/admin")
@@ -161,7 +164,8 @@ def test_verify_admin_api_key_missing(monkeypatch) -> None:
 
 
 def test_verify_admin_api_key_invalid(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
     client = _build_client()
 
     response = client.get("/admin", headers={"X-API-Key": "wrong"})
@@ -214,7 +218,8 @@ def test_get_client_ip_ignores_invalid_xff_ip(monkeypatch) -> None:
 
 
 def test_validate_admin_api_key_headers_accepts_raw_authorization(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
 
     assert security.validate_admin_api_key_headers(
         {"authorization": "adminkey"}
@@ -222,7 +227,8 @@ def test_validate_admin_api_key_headers_accepts_raw_authorization(monkeypatch) -
 
 
 def test_validate_admin_api_key_headers_prefers_x_api_key(monkeypatch) -> None:
-    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "adminkey:admin")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
 
     assert security.validate_admin_api_key_headers(
         {"authorization": "Bearer wrong", "x-api-key": "adminkey"}
@@ -231,9 +237,85 @@ def test_validate_admin_api_key_headers_prefers_x_api_key(monkeypatch) -> None:
 
 def test_verify_admin_api_key_unconfigured_returns_503(monkeypatch) -> None:
     monkeypatch.setattr(security.settings, "admin_api_key", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_active", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_previous", "")
     client = _build_client()
 
     response = client.get("/admin", headers={"X-API-Key": "anything"})
 
     assert response.status_code == 503
     assert response.json()["message"] == "Admin API key not configured"
+
+
+def test_scoped_admin_keys_enforce_scope(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
+    monkeypatch.setattr(
+        security.settings,
+        "admin_api_keys",
+        "read-key:read,replay-key:replay,admin-key:admin",
+    )
+
+    read_auth = security.authenticate_admin_api_key_headers(
+        {"x-api-key": "read-key"}, required_scope="read"
+    )
+    replay_auth = security.authenticate_admin_api_key_headers(
+        {"x-api-key": "read-key"}, required_scope="replay"
+    )
+    admin_auth = security.authenticate_admin_api_key_headers(
+        {"x-api-key": "admin-key"}, required_scope="replay"
+    )
+
+    assert read_auth.ok is True
+    assert read_auth.scope == "read"
+    assert replay_auth.ok is False
+    assert replay_auth.reason == "expired_scope"
+    assert admin_auth.ok is True
+
+
+def test_rotation_previous_key_accepted_within_grace(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_active", "new-key:admin")
+    monkeypatch.setattr(security.settings, "admin_api_keys_previous", "old-key:admin")
+    monkeypatch.setattr(security.settings, "admin_key_rotation_grace_seconds", 3600)
+    monkeypatch.setattr(security.settings, "admin_key_rotation_started_at", str(1_000_000_000))
+    monkeypatch.setattr(security.time, "time", lambda: 1_000_000_100)
+
+    result = security.authenticate_admin_api_key_headers(
+        {"x-api-key": "old-key"}, required_scope="admin"
+    )
+
+    assert result.ok is True
+    assert result.used_previous_key is True
+
+
+def test_rotation_previous_key_rejected_after_grace(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_active", "new-key:admin")
+    monkeypatch.setattr(security.settings, "admin_api_keys_previous", "old-key:admin")
+    monkeypatch.setattr(security.settings, "admin_key_rotation_grace_seconds", 10)
+    monkeypatch.setattr(security.settings, "admin_key_rotation_started_at", str(1_000_000_000))
+    monkeypatch.setattr(security.time, "time", lambda: 1_000_000_100)
+
+    result = security.authenticate_admin_api_key_headers(
+        {"x-api-key": "old-key"}, required_scope="admin"
+    )
+
+    assert result.ok is False
+    assert result.reason == "expired_previous_key"
+
+
+def test_legacy_admin_api_key_backward_compatible(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_keys", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_active", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_previous", "")
+    monkeypatch.setattr(security.settings, "admin_api_key", "legacy-key")
+
+    result = security.authenticate_admin_api_key_headers(
+        {"authorization": "Bearer legacy-key"}, required_scope="admin"
+    )
+
+    assert result.ok is True
+    assert result.scope == "admin"

@@ -97,6 +97,35 @@ def test_list_deliveries_logs_success_audit(monkeypatch, caplog) -> None:
     assert "auth_result=allow" in caplog.text
 
 
+def test_list_deliveries_accepts_read_scope_key(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    monkeypatch.setattr(main.settings, "admin_api_key", "")
+    monkeypatch.setattr(main.settings, "admin_api_keys", "read-only:read,replay-only:replay")
+
+    response = client.get("/deliveries", headers={"X-API-Key": "read-only"})
+    assert response.status_code == 200
+
+
+def test_replay_requires_replay_scope(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    monkeypatch.setattr(main.settings, "admin_api_key", "")
+    monkeypatch.setattr(main.settings, "admin_api_keys", "read-only:read,replay-only:replay")
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def ok_send(_: str) -> None:
+        return None
+
+    import replay
+    monkeypatch.setattr(replay, "send_message", ok_send)
+
+    denied = client.post(f"/deliveries/{ids[0]}/replay", headers={"X-API-Key": "read-only"})
+    assert denied.status_code == 403
+
+    allowed = client.post(f"/deliveries/{ids[0]}/replay", headers={"X-API-Key": "replay-only"})
+    assert allowed.status_code == 200
+
+
 def test_list_deliveries_empty(monkeypatch) -> None:
     """List deliveries returns empty list when no failures."""
     client = _client(monkeypatch)

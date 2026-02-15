@@ -12,7 +12,7 @@ from config import settings
 from exceptions import ValidationError
 from formatters import get_formatter
 from observability import audit_log, fingerprint_api_key
-from security import get_client_ip, verify_admin_api_key
+from security import get_client_ip, require_admin_scope
 from storage import Storage
 from tg_client import TelegramSendError, format_generic, send_message
 
@@ -26,7 +26,7 @@ def _get_storage(request: Request) -> Storage:
     return request.app.state.storage
 
 
-def _actor_from_request(request: Request) -> str:
+def _actor_key_id_from_request(request: Request) -> str:
     key = request.headers.get("x-api-key")
     if not key and request.headers.get("authorization", "").lower().startswith("bearer "):
         key = request.headers.get("authorization", "")[7:].strip()
@@ -114,7 +114,7 @@ async def list_deliveries(
     status: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    _auth: str = Depends(verify_admin_api_key),
+    _auth: str = Depends(require_admin_scope("read")),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, Any]:
     deliveries, total = await storage.list_failed_deliveries(
@@ -127,7 +127,7 @@ async def list_deliveries(
         client_ip=get_client_ip(request),
         auth_result="allow",
         status="ok",
-        actor=_actor_from_request(request),
+        actor_key_id=_actor_key_id_from_request(request),
     )
     return {"deliveries": deliveries, "total": total}
 
@@ -138,7 +138,7 @@ async def replay_delivery(
     request: Request,
     override: bool = Query(default=False),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    _auth: str = Depends(verify_admin_api_key),
+    _auth: str = Depends(require_admin_scope("replay")),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, str]:
     if idempotency_key:
@@ -166,7 +166,7 @@ async def replay_delivery(
         client_ip=get_client_ip(request),
         auth_result="allow",
         status=new_status,
-        actor=_actor_from_request(request),
+        actor_key_id=_actor_key_id_from_request(request),
         delivery_id=delivery_id,
     )
     return {"status": new_status, "delivery_id": delivery_id}
@@ -177,7 +177,7 @@ async def replay_all(
     request: Request,
     override: bool = Query(default=False),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    _auth: str = Depends(verify_admin_api_key),
+    _auth: str = Depends(require_admin_scope("replay")),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, int]:
     if idempotency_key:
@@ -213,6 +213,6 @@ async def replay_all(
         client_ip=get_client_ip(request),
         auth_result="allow",
         status="ok",
-        actor=_actor_from_request(request),
+        actor_key_id=_actor_key_id_from_request(request),
     )
     return {"attempted": attempted, "succeeded": succeeded, "failed": failed_count}

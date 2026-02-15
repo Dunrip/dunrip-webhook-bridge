@@ -10,7 +10,10 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+import time
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 
 import anyio
@@ -21,6 +24,17 @@ from exceptions import AuthenticationError, ValidationError
 from observability import audit_log, fingerprint_api_key
 
 logger = logging.getLogger(__name__)
+
+_VALID_SCOPES = {"read", "replay", "admin"}
+
+
+@dataclass
+class AdminAuthResult:
+    ok: bool
+    reason: str
+    scope: str | None
+    actor_key_id: str
+    used_previous_key: bool = False
 
 
 def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
@@ -182,96 +196,180 @@ def _extract_api_key(authorization: str | None, x_api_key: str | None) -> str | 
     return authorization.strip() or None
 
 
+def _parse_scoped_keys(raw: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for item in (raw or "").split(","):
+        pair = item.strip()
+        if not pair:
+            continue
+        if ":" not in pair:
+            logger.warning("Ignoring malformed admin key scope pair: %s", pair)
+            continue
+        key, scope = pair.split(":", 1)
+        key = key.strip()
+        scope = scope.strip().lower()
+        if not key:
+            continue
+        if scope not in _VALID_SCOPES:
+            logger.warning("Ignoring admin key with invalid scope '%s'", scope)
+            continue
+        parsed[key] = scope
+    return parsed
+
+
+def _parse_rotation_started_at(raw: str) -> float | None:
+    value = (raw or "").strip()
+    if not value:
+        return None
+
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except ValueError:
+        logger.warning("Invalid ADMIN_KEY_ROTATION_STARTED_AT: %s", value)
+        return None
+
+
+def _scope_allows(assigned: str, required: str) -> bool:
+    if assigned == "admin":
+        return True
+    if required == "read":
+        return assigned in {"read", "replay"}
+    if required == "replay":
+        return assigned == "replay"
+    return assigned == required
+
+
+def _resolve_admin_keys() -> tuple[dict[str, str], dict[str, str]]:
+    # New rotation-aware config takes priority when active is set.
+    active = _parse_scoped_keys(settings.admin_api_keys_active)
+    previous = _parse_scoped_keys(settings.admin_api_keys_previous)
+    if active:
+        return active, previous
+
+    # Backward-compatible scoped map.
+    scoped = _parse_scoped_keys(settings.admin_api_keys)
+    if scoped:
+        return scoped, {}
+
+    # Legacy single key support.
+    if settings.admin_api_key:
+        return {settings.admin_api_key: "admin"}, {}
+
+    return {}, {}
+
+
+def authenticate_admin_api_key_headers(
+    headers: Mapping[str, str],
+    *,
+    required_scope: str = "admin",
+) -> AdminAuthResult:
+    """Authenticate admin key and validate required scope."""
+    provided = _extract_api_key(headers.get("authorization"), headers.get("x-api-key"))
+    actor_key_id = fingerprint_api_key(provided)
+
+    if provided is None:
+        return AdminAuthResult(False, "missing", None, actor_key_id)
+
+    active, previous = _resolve_admin_keys()
+    if not active and not previous:
+        return AdminAuthResult(False, "not_configured", None, actor_key_id)
+
+    scope = active.get(provided)
+    if scope:
+        if _scope_allows(scope, required_scope):
+            return AdminAuthResult(True, "ok", scope, actor_key_id)
+        return AdminAuthResult(False, "expired_scope", scope, actor_key_id)
+
+    prev_scope = previous.get(provided)
+    if prev_scope:
+        started_at = _parse_rotation_started_at(settings.admin_key_rotation_started_at)
+        grace_seconds = max(int(settings.admin_key_rotation_grace_seconds), 0)
+        if started_at is None or (time.time() - started_at) > grace_seconds:
+            return AdminAuthResult(False, "expired_previous_key", prev_scope, actor_key_id, used_previous_key=True)
+        if _scope_allows(prev_scope, required_scope):
+            return AdminAuthResult(True, "ok", prev_scope, actor_key_id, used_previous_key=True)
+        return AdminAuthResult(False, "expired_scope", prev_scope, actor_key_id, used_previous_key=True)
+
+    return AdminAuthResult(False, "invalid", None, actor_key_id)
+
+
 def validate_admin_api_key_headers(headers: Mapping[str, str]) -> bool:
-    """Validate admin API key from request headers.
-
-    Args:
-        headers: Header mapping containing authorization values.
-
-    Returns:
-        True when a configured admin key is present and matches; otherwise False.
-    """
-    expected = settings.admin_api_key
-    if not expected:
-        return False
-
-    provided = _extract_api_key(
-        headers.get("authorization"),
-        headers.get("x-api-key"),
-    )
-    return bool(provided) and hmac.compare_digest(provided, expected)
+    """Backwards-compatible boolean validator for admin endpoints."""
+    return authenticate_admin_api_key_headers(headers, required_scope="admin").ok
 
 
-async def verify_admin_api_key(request: Request) -> str:
-    """FastAPI dependency that enforces admin API-key authentication.
+def require_admin_scope(required_scope: str):
+    async def _dependency(request: Request) -> str:
+        request_id = getattr(request.state, "request_id", "-")
+        client_ip = get_client_ip(request)
+        action = f"{request.method} {request.url.path}"
+        result = authenticate_admin_api_key_headers(request.headers, required_scope=required_scope)
 
-    Args:
-        request: Incoming FastAPI request.
+        if result.used_previous_key and result.ok:
+            logger.warning(
+                "Admin auth accepted with previous key within grace window actor_key_id=%s scope=%s",
+                result.actor_key_id,
+                result.scope,
+            )
 
-    Returns:
-        Constant success marker when authentication succeeds.
+        if result.reason == "not_configured":
+            logger.error("Admin endpoint called but admin key config is missing")
+            audit_log(
+                logger,
+                action=action,
+                request_id=request_id,
+                client_ip=client_ip,
+                auth_result="error",
+                status="admin_key_not_configured",
+                actor_key_id=result.actor_key_id,
+                reason=result.reason,
+            )
+            raise AuthenticationError(
+                "Admin API key not configured",
+                error_code="admin_key_not_configured",
+                status_code=503,
+            )
 
-    Raises:
-        AuthenticationError: API key is missing, invalid, or misconfigured.
-    """
-    request_id = getattr(request.state, "request_id", "-")
-    client_ip = get_client_ip(request)
-    action = f"{request.method} {request.url.path}"
-    provided = _extract_api_key(
-        request.headers.get("authorization"),
-        request.headers.get("x-api-key"),
-    )
-    actor = fingerprint_api_key(provided)
-
-    if not settings.admin_api_key:
-        logger.error("Admin endpoint called but ADMIN_API_KEY is not configured")
-        audit_log(
-            logger,
-            action=action,
-            request_id=request_id,
-            client_ip=client_ip,
-            auth_result="error",
-            status="admin_key_not_configured",
-            actor=actor,
-        )
-        raise AuthenticationError(
-            "Admin API key not configured",
-            error_code="admin_key_not_configured",
-            status_code=503,
-        )
-
-    if not validate_admin_api_key_headers(request.headers):
-        if provided is None:
-            logger.warning("Admin endpoint missing API key")
+        if not result.ok:
             audit_log(
                 logger,
                 action=action,
                 request_id=request_id,
                 client_ip=client_ip,
                 auth_result="deny",
-                status="missing_api_key",
-                actor="api-key",
+                status="auth_failed",
+                actor_key_id=result.actor_key_id,
+                reason=result.reason,
             )
-            raise AuthenticationError("Missing API key", error_code="AUTH_MISSING_KEY")
-        logger.warning("Admin endpoint invalid API key")
+            if result.reason == "missing":
+                raise AuthenticationError("Missing API key", error_code="missing")
+            if result.reason == "expired_scope":
+                raise AuthenticationError("Insufficient key scope", error_code="expired_scope", status_code=403)
+            if result.reason == "expired_previous_key":
+                raise AuthenticationError("Previous key expired", error_code="expired_previous_key", status_code=401)
+            raise AuthenticationError("Invalid API key", error_code="invalid")
+
         audit_log(
             logger,
             action=action,
             request_id=request_id,
             client_ip=client_ip,
-            auth_result="deny",
-            status="invalid_api_key",
-            actor=actor,
+            auth_result="allow",
+            status="ok",
+            actor_key_id=result.actor_key_id,
+            reason="ok",
         )
-        raise AuthenticationError("Invalid API key", error_code="AUTH_INVALID_KEY")
+        return "ok"
 
-    audit_log(
-        logger,
-        action=action,
-        request_id=request_id,
-        client_ip=client_ip,
-        auth_result="allow",
-        status="ok",
-        actor=actor,
-    )
-    return "ok"
+    return _dependency
+
+
+async def verify_admin_api_key(request: Request) -> str:
+    """FastAPI dependency that enforces admin API-key authentication."""
+    return await require_admin_scope("admin")(request)

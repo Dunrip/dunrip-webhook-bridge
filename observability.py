@@ -9,12 +9,11 @@ request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id
 
 
 def fingerprint_api_key(api_key: str | None) -> str:
-    """Return a non-reversible API-key fingerprint safe for logs."""
+    """Return a deterministic non-reversible API-key identifier for logs."""
     if not api_key:
-        return "api-key"
-    digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
-    tail = api_key[-4:] if len(api_key) >= 4 else api_key
-    return f"api-key:{digest}:{tail}"
+        return "api-key:anonymous"
+    digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
+    return f"key_{digest}"
 
 
 class RequestContextFilter(logging.Filter):
@@ -40,17 +39,19 @@ def audit_log(
     client_ip: str,
     auth_result: str,
     status: str,
-    actor: str,
+    actor_key_id: str,
+    reason: str | None = None,
     delivery_id: str | None = None,
 ) -> None:
     """Emit structured audit event for sensitive admin actions."""
     logger.info(
-        "admin_audit action=%s request_id=%s client_ip=%s auth_result=%s delivery_id=%s status=%s actor=%s",
+        "admin_audit action=%s request_id=%s client_ip=%s auth_result=%s delivery_id=%s status=%s actor_key_id=%s reason=%s",
         action,
         request_id,
         client_ip,
         auth_result,
         delivery_id or "-",
         status,
-        actor,
+        actor_key_id,
+        reason or "-",
     )
