@@ -34,6 +34,21 @@ class Storage(Protocol):
     ) -> str:
         ...
 
+    async def list_failed_deliveries(
+        self,
+        source: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        ...
+
+    async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        ...
+
+    async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        ...
+
 
 class MemoryStorage:
     def __init__(self, idempotency_ttl: int, failed_delivery_ttl: int = 604800) -> None:
@@ -91,6 +106,30 @@ class MemoryStorage:
             "created_at_unix": now,
         }
         return failed_id
+
+    async def list_failed_deliveries(
+        self,
+        source: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        records = list(self.failed_deliveries.values())
+        if source:
+            records = [r for r in records if r["source"] == source]
+        if status:
+            records = [r for r in records if r["status"] == status]
+        records.sort(key=lambda r: r["created_at_unix"], reverse=True)
+        total = len(records)
+        return records[offset : offset + limit], total
+
+    async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        return self.failed_deliveries.get(failed_id)
+
+    async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        record = self.failed_deliveries.get(failed_id)
+        if record:
+            record["status"] = status
 
 
 class RedisStorage:
@@ -200,6 +239,30 @@ class FallbackStorage:
                 error=error,
                 delivery_id=delivery_id,
             )
+
+    async def list_failed_deliveries(
+        self,
+        source: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        try:
+            return await self._primary.list_failed_deliveries(source, status, limit, offset)
+        except RedisError:
+            return await self._fallback.list_failed_deliveries(source, status, limit, offset)
+
+    async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        try:
+            return await self._primary.get_failed_delivery(failed_id)
+        except RedisError:
+            return await self._fallback.get_failed_delivery(failed_id)
+
+    async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        try:
+            await self._primary.update_failed_delivery_status(failed_id, status)
+        except RedisError:
+            await self._fallback.update_failed_delivery_status(failed_id, status)
 
 
 def create_storage_backend() -> Storage:

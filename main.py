@@ -13,6 +13,8 @@ from circuit_breaker import telegram_circuit
 from config import settings
 from middleware import RateLimitMiddleware, create_rate_limit_backend
 from models import GenericWebhookPayload
+from replay import router as replay_router
+from sandbox import router as sandbox_router
 from security import verify_generic_token, verify_github_signature
 from storage import Storage, create_storage_backend
 from tg_client import (
@@ -73,7 +75,7 @@ def _get_storage(request: Request) -> Storage:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Webhook-to-Telegram Bridge",
-        version="1.2.0",
+        version="1.3.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
@@ -84,6 +86,8 @@ def create_app() -> FastAPI:
         ip_limit_per_minute=settings.rate_limit_ip_per_minute,
         token_limit_per_minute=settings.rate_limit_token_per_minute,
     )
+    app.include_router(sandbox_router)
+    app.include_router(replay_router)
 
     @app.get("/metrics", tags=["monitoring"])
     async def metrics() -> PlainTextResponse:

@@ -1,0 +1,5 @@
+*Push* to `{{ repository }}` by *{{ pusher }}*
+Branch: `{{ branch }}`
+{% for commit in commits[:5] %}  `{{ commit.sha[:7] }}` {{ commit.message }}
+{% endfor %}{% if commits|length > 5 %}  \.\.\.and {{ commits|length - 5 }} more
+{% endif %}{% if compare_url %}[View diff]({{ compare_url }}){% endif %}
