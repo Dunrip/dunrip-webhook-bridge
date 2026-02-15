@@ -19,6 +19,10 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
     monkeypatch.setattr(main.settings, "max_body_size", 1024 * 1024)
     monkeypatch.setattr(main.settings, "idempotency_ttl", 3600)
+    # Reset idempotency store and circuit breaker for each test
+    main._idempotency_store.clear()
+    from circuit_breaker import telegram_circuit
+    telegram_circuit._reset()
     app = main.create_app()
     return TestClient(app)
 

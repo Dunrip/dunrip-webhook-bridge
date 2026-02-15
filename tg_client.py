@@ -8,6 +8,7 @@ from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import NetworkError, RetryAfter, TimedOut
 
+from circuit_breaker import telegram_circuit
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,13 @@ async def send_message(
     if retries is None:
         retries = settings.telegram_retries
 
+    # Check circuit breaker first
+    if not telegram_circuit.can_execute():
+        raise TelegramSendError(
+            f"Circuit breaker is OPEN - Telegram service appears down "
+            f"(will retry in {telegram_circuit.timeout}s)"
+        )
+
     for attempt in range(retries + 1):
         try:
             await bot.send_message(
@@ -51,22 +59,26 @@ async def send_message(
                 text=text,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
+            telegram_circuit.record_success()
             return
         except RetryAfter as exc:
             wait_seconds = float(exc.retry_after)
             if attempt == retries:
+                telegram_circuit.record_failure()
                 logger.exception("Telegram rate limited after retries")
                 raise TelegramSendError("Rate limited by Telegram") from exc
             logger.warning("Telegram rate limited; retrying in %.2fs", wait_seconds)
             await sleep_func(wait_seconds)
         except (TimedOut, NetworkError) as exc:
             if attempt == retries:
+                telegram_circuit.record_failure()
                 logger.exception("Telegram transient error after retries")
                 raise TelegramSendError("Telegram network error") from exc
             backoff = float(attempt + 1)
             logger.warning("Telegram transient error; retrying in %.2fs", backoff)
             await sleep_func(backoff)
         except Exception as exc:
+            telegram_circuit.record_failure()
             logger.exception("Failed to send Telegram message")
             raise TelegramSendError("Telegram delivery failed") from exc
 
