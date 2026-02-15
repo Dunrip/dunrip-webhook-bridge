@@ -1,4 +1,4 @@
-# Webhook-to-Telegram Bridge
+# Dunrip Webhook Bridge
 
 Production-ready FastAPI service for forwarding GitHub and generic webhooks to Telegram.
 

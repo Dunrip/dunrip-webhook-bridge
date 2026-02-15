@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in contributing to `webhook-bridge`.
+Thanks for your interest in contributing to `dunrip-webhook-bridge`.
 
 ## Reporting Bugs
 
