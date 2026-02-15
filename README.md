@@ -127,7 +127,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-## Hardening (v1.2)
+## Hardening
 
 - **Scoped admin keys**:
   - `read` for read-only admin endpoints (`GET /deliveries`)
@@ -149,7 +149,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
   - Max replay attempts: `MAX_REPLAY_ATTEMPTS` (default `10`), then status moves to `dead_letter`
   - Replay operation idempotency via `Idempotency-Key` header
 
-## Network Boundary Controls (v1.2 Track B)
+## Network Boundary Controls
 
 Admin and streaming endpoints support optional CIDR/IP allowlists:
 
@@ -179,7 +179,7 @@ ADMIN_IP_ALLOWLIST=203.0.113.0/24
 WS_IP_ALLOWLIST=
 ```
 
-Migration notes: see `docs/migration-v1.2.md`.
+Migration notes: see `docs/migration-guide.md`.
 
 ## Security hygiene
 
