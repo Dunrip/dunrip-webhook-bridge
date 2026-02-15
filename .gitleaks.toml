@@ -1,0 +1,10 @@
+title = "webhook-bridge gitleaks config"
+
+[allowlist]
+description = "Repository-level allowlist. Keep minimal and documented."
+paths = [
+  '''^\.venv/''',
+  '''^\.pytest_cache/''',
+]
+commits = []
+regexes = []
