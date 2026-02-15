@@ -25,6 +25,11 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_ip_per_minute", 1000)
     monkeypatch.setattr(main.settings, "rate_limit_token_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "rate_limit_admin_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "ws_connects_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "ws_max_connections_per_ip", 1000)
+    monkeypatch.setattr(main.settings, "replay_cooldown_seconds", 30)
+    monkeypatch.setattr(main.settings, "max_replay_attempts", 10)
     from circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()

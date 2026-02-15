@@ -18,6 +18,7 @@ from fastapi import Header, Request
 
 from config import settings
 from exceptions import AuthenticationError, ValidationError
+from observability import audit_log, fingerprint_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -213,8 +214,26 @@ async def verify_admin_api_key(request: Request) -> str:
     Raises:
         AuthenticationError: API key is missing, invalid, or misconfigured.
     """
+    request_id = getattr(request.state, "request_id", "-")
+    client_ip = get_client_ip(request)
+    action = f"{request.method} {request.url.path}"
+    provided = _extract_api_key(
+        request.headers.get("authorization"),
+        request.headers.get("x-api-key"),
+    )
+    actor = fingerprint_api_key(provided)
+
     if not settings.admin_api_key:
         logger.error("Admin endpoint called but ADMIN_API_KEY is not configured")
+        audit_log(
+            logger,
+            action=action,
+            request_id=request_id,
+            client_ip=client_ip,
+            auth_result="error",
+            status="admin_key_not_configured",
+            actor=actor,
+        )
         raise AuthenticationError(
             "Admin API key not configured",
             error_code="admin_key_not_configured",
@@ -222,14 +241,37 @@ async def verify_admin_api_key(request: Request) -> str:
         )
 
     if not validate_admin_api_key_headers(request.headers):
-        provided = _extract_api_key(
-            request.headers.get("authorization"),
-            request.headers.get("x-api-key"),
-        )
         if provided is None:
             logger.warning("Admin endpoint missing API key")
+            audit_log(
+                logger,
+                action=action,
+                request_id=request_id,
+                client_ip=client_ip,
+                auth_result="deny",
+                status="missing_api_key",
+                actor="api-key",
+            )
             raise AuthenticationError("Missing API key", error_code="AUTH_MISSING_KEY")
         logger.warning("Admin endpoint invalid API key")
+        audit_log(
+            logger,
+            action=action,
+            request_id=request_id,
+            client_ip=client_ip,
+            auth_result="deny",
+            status="invalid_api_key",
+            actor=actor,
+        )
         raise AuthenticationError("Invalid API key", error_code="AUTH_INVALID_KEY")
 
+    audit_log(
+        logger,
+        action=action,
+        request_id=request_id,
+        client_ip=client_ip,
+        auth_result="allow",
+        status="ok",
+        actor=actor,
+    )
     return "ok"

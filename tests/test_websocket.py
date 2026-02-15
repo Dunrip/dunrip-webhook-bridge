@@ -146,7 +146,12 @@ def _app_client(monkeypatch):
     monkeypatch.setattr(main.settings, "admin_api_key", "admin-test-key")
     monkeypatch.setattr(main.settings, "storage_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
+    monkeypatch.setattr(main.settings, "rate_limit_admin_per_minute", 1000)
     app = main.create_app()
+    from websocket import broadcaster
+    broadcaster._connect_attempts.clear()
+    broadcaster._connections_per_ip.clear()
+    broadcaster._clients.clear()
     from fastapi.testclient import TestClient
     return TestClient(app)
 
@@ -162,3 +167,23 @@ def test_stream_logs_accepts_x_api_key(monkeypatch):
     client = _app_client(monkeypatch)
     with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws:
         ws.close()
+
+
+def test_stream_logs_rate_limit_connect_attempts(monkeypatch):
+    client = _app_client(monkeypatch)
+    monkeypatch.setattr(main.settings, "ws_connects_per_minute", 1)
+    with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws:
+        ws.close()
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}):
+            pass
+
+
+def test_stream_logs_max_connections_per_ip(monkeypatch):
+    client = _app_client(monkeypatch)
+    monkeypatch.setattr(main.settings, "ws_max_connections_per_ip", 1)
+    with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws1:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}):
+                pass
+        ws1.close()

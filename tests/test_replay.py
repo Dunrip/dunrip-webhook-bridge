@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,11 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_ip_per_minute", 1000)
     monkeypatch.setattr(main.settings, "rate_limit_token_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "rate_limit_admin_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "replay_cooldown_seconds", 30)
+    monkeypatch.setattr(main.settings, "max_replay_attempts", 10)
+    monkeypatch.setattr(main.settings, "ws_connects_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "ws_max_connections_per_ip", 1000)
     from circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
@@ -72,11 +78,23 @@ def _seed_failures(storage: MemoryStorage) -> list[str]:
     return ids
 
 
-def test_list_deliveries_requires_auth(monkeypatch) -> None:
+def test_list_deliveries_requires_auth(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.INFO)
     client = _client(monkeypatch)
     response = client.get("/deliveries", headers={"X-API-Key": "wrong-key"})
     assert response.status_code == 401
     assert response.json()["message"] == "Invalid API key"
+    assert "admin_audit" in caplog.text
+    assert "auth_result=deny" in caplog.text
+
+
+def test_list_deliveries_logs_success_audit(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    client = _client(monkeypatch)
+    response = client.get("/deliveries")
+    assert response.status_code == 200
+    assert "admin_audit" in caplog.text
+    assert "auth_result=allow" in caplog.text
 
 
 def test_list_deliveries_empty(monkeypatch) -> None:
@@ -308,3 +326,59 @@ def test_replay_unknown_event_formatter_is_counted_as_failed(monkeypatch) -> Non
     assert data["attempted"] == 1
     assert data["succeeded"] == 0
     assert data["failed"] == 1
+
+
+def test_replay_cooldown_enforced(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    monkeypatch.setattr(main.settings, "replay_cooldown_seconds", 60)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def ok_send(_: str) -> None:
+        return None
+
+    import replay
+    monkeypatch.setattr(replay, "send_message", ok_send)
+
+    first = client.post(f"/deliveries/{ids[0]}/replay")
+    assert first.status_code == 200
+    second = client.post(f"/deliveries/{ids[0]}/replay")
+    assert second.status_code == 429
+    assert second.json()["error"] == "replay_cooldown_active"
+
+
+def test_replay_idempotency_key_blocks_duplicates(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def ok_send(_: str) -> None:
+        return None
+
+    import replay
+    monkeypatch.setattr(replay, "send_message", ok_send)
+
+    headers = {"Idempotency-Key": "abc", "X-API-Key": "admin-test-key"}
+    first = client.post(f"/deliveries/{ids[0]}/replay", headers=headers)
+    assert first.status_code == 200
+    second = client.post(f"/deliveries/{ids[0]}/replay", headers=headers)
+    assert second.status_code == 409
+    assert second.json()["error"] == "replay_duplicate_request"
+
+
+def test_replay_max_attempts_moves_to_dead_letter(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    monkeypatch.setattr(main.settings, "max_replay_attempts", 1)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def fail_send(_: str) -> None:
+        raise TelegramSendError("boom")
+
+    import replay
+    monkeypatch.setattr(replay, "send_message", fail_send)
+
+    response = client.post(f"/deliveries/{ids[0]}/replay")
+    assert response.status_code == 200
+    assert response.json()["status"] == "dead_letter"
+    assert storage.failed_deliveries[ids[0]]["status"] == "dead_letter"

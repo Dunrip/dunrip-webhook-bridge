@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     rate_limit_backend: str = "memory"  # memory | redis
     rate_limit_ip_per_minute: int = 10
     rate_limit_token_per_minute: int = 30
+    rate_limit_admin_per_minute: int = 20
+
+    # WebSocket admin stream hardening
+    ws_connects_per_minute: int = 10
+    ws_max_connections_per_ip: int = 3
+
+    # Replay hardening
+    replay_cooldown_seconds: int = 30
+    max_replay_attempts: int = 10
 
     # Proxy / client IP extraction
     trusted_proxies: str = ""  # Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For

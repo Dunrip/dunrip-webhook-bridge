@@ -158,6 +158,7 @@ def create_app() -> FastAPI:
         backend=create_rate_limit_backend(),
         ip_limit_per_minute=settings.rate_limit_ip_per_minute,
         token_limit_per_minute=settings.rate_limit_token_per_minute,
+        admin_limit_per_minute=settings.rate_limit_admin_per_minute,
     )
     app.add_middleware(RequestContextMiddleware)
     app.include_router(sandbox_router)

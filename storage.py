@@ -35,6 +35,10 @@ class Storage(Protocol):
         """Return True when a delivery ID was already processed recently."""
         ...
 
+    async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
+        """Return True when replay operation key was already seen inside ttl."""
+        ...
+
     async def store_failed_delivery(
         self,
         source: str,
@@ -65,6 +69,10 @@ class Storage(Protocol):
         """Update status for a failed delivery record."""
         ...
 
+    async def update_failed_delivery(self, failed_id: str, updates: Mapping[str, Any]) -> None:
+        """Apply partial field updates to a failed delivery record."""
+        ...
+
 
 class MemoryStorage:
     """In-memory storage backend for local/dev/test usage."""
@@ -79,6 +87,7 @@ class MemoryStorage:
         self._idempotency_ttl = idempotency_ttl
         self._failed_delivery_ttl = failed_delivery_ttl
         self._idempotency_store: dict[str, float] = {}
+        self._replay_operation_store: dict[str, float] = {}
         self.failed_deliveries: dict[str, dict[str, Any]] = {}
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
@@ -98,6 +107,22 @@ class MemoryStorage:
             return True
 
         self._idempotency_store[delivery_id] = now
+        return False
+
+    async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
+        """Check and record replay operation idempotency keys."""
+        now = time.time()
+        cutoff = now - ttl_seconds
+        if len(self._replay_operation_store) > 1000:
+            self._replay_operation_store = {
+                key: ts for key, ts in self._replay_operation_store.items() if ts >= cutoff
+            }
+
+        existing = self._replay_operation_store.get(operation_key)
+        if existing and now - existing < ttl_seconds:
+            return True
+
+        self._replay_operation_store[operation_key] = now
         return False
 
     async def store_failed_delivery(
@@ -129,6 +154,9 @@ class MemoryStorage:
             "error": error,
             "delivery_id": delivery_id,
             "status": "failed",
+            "replay_attempts": 0,
+            "last_replay_at": None,
+            "last_replay_status": None,
             "created_at_unix": now,
         }
         return failed_id
@@ -159,6 +187,12 @@ class MemoryStorage:
         record = self.failed_deliveries.get(failed_id)
         if record:
             record["status"] = status
+
+    async def update_failed_delivery(self, failed_id: str, updates: Mapping[str, Any]) -> None:
+        """Apply partial updates to an in-memory failed delivery record."""
+        record = self.failed_deliveries.get(failed_id)
+        if record:
+            record.update(dict(updates))
 
 
 class RedisStorage:
@@ -210,6 +244,16 @@ class RedisStorage:
         )
         return was_set is None
 
+    async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
+        """Atomically check/set replay operation idempotency key in Redis."""
+        was_set = await self._redis.set(
+            f"{self._key_prefix}:replay-op:{operation_key}",
+            "1",
+            nx=True,
+            ex=ttl_seconds,
+        )
+        return was_set is None
+
     async def store_failed_delivery(
         self,
         source: str,
@@ -230,6 +274,9 @@ class RedisStorage:
             "error": error,
             "delivery_id": delivery_id,
             "status": "failed",
+            "replay_attempts": 0,
+            "last_replay_at": None,
+            "last_replay_status": None,
             "created_at_unix": time.time(),
         }
         await self._redis.set(self._failed_key(failed_id), json.dumps(record))
@@ -285,6 +332,14 @@ class RedisStorage:
         record["status"] = status
         await self._redis.set(self._failed_key(failed_id), json.dumps(record))
 
+    async def update_failed_delivery(self, failed_id: str, updates: Mapping[str, Any]) -> None:
+        """Apply partial updates to a failed delivery record in Redis."""
+        record = await self.get_failed_delivery(failed_id)
+        if not record:
+            return
+        record.update(dict(updates))
+        await self._redis.set(self._failed_key(failed_id), json.dumps(record))
+
 
 class FallbackStorage:
     """Storage wrapper that falls back to memory when primary backend fails."""
@@ -306,6 +361,19 @@ class FallbackStorage:
                 )
                 self._warned = True
             return await self._fallback.is_duplicate_delivery(delivery_id)
+
+    async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
+        """Check replay operation idempotency with fallback behavior."""
+        try:
+            return await self._primary.is_duplicate_replay_operation(operation_key, ttl_seconds)
+        except RedisError as exc:
+            if not self._warned:
+                logger.warning(
+                    "Primary Redis storage unavailable, falling back to memory: %s",
+                    exc,
+                )
+                self._warned = True
+            return await self._fallback.is_duplicate_replay_operation(operation_key, ttl_seconds)
 
     async def store_failed_delivery(
         self,
@@ -368,6 +436,13 @@ class FallbackStorage:
             await self._primary.update_failed_delivery_status(failed_id, status)
         except RedisError:
             await self._fallback.update_failed_delivery_status(failed_id, status)
+
+    async def update_failed_delivery(self, failed_id: str, updates: Mapping[str, Any]) -> None:
+        """Apply partial updates with fallback behavior."""
+        try:
+            await self._primary.update_failed_delivery(failed_id, updates)
+        except RedisError:
+            await self._fallback.update_failed_delivery(failed_id, updates)
 
 
 def create_storage_backend(redis_client: Any | None = None) -> Storage:

@@ -114,40 +114,49 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         backend: RateLimitBackend,
         ip_limit_per_minute: int,
         token_limit_per_minute: int,
+        admin_limit_per_minute: int,
     ) -> None:
         super().__init__(app)
         self._backend = backend
         self._ip_limit_per_minute = ip_limit_per_minute
         self._token_limit_per_minute = token_limit_per_minute
+        self._admin_limit_per_minute = admin_limit_per_minute
         self._window_seconds = 60
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.url.path not in {"/webhook/github", "/webhook/generic"}:
+        path = request.url.path
+        is_webhook = path in {"/webhook/github", "/webhook/generic"}
+        is_admin = path.startswith("/deliveries")
+
+        if not is_webhook and not is_admin:
             return await call_next(request)
 
         ip = get_client_ip(request)
-        checks: list[tuple[str, int]] = []
+        checks: list[tuple[str, int, str]] = []
 
-        if self._ip_limit_per_minute > 0:
-            checks.append((f"ip:{request.url.path}:{ip}", self._ip_limit_per_minute))
+        if is_webhook and self._ip_limit_per_minute > 0:
+            checks.append((f"ip:{path}:{ip}", self._ip_limit_per_minute, "Rate limit exceeded"))
 
         if (
-            request.url.path == "/webhook/generic"
+            path == "/webhook/generic"
             and self._token_limit_per_minute > 0
             and request.headers.get("x-webhook-token")
         ):
             token = request.headers["x-webhook-token"]
-            checks.append((f"token:{request.url.path}:{token}", self._token_limit_per_minute))
+            checks.append((f"token:{path}:{token}", self._token_limit_per_minute, "Rate limit exceeded"))
 
-        for key, limit in checks:
+        if is_admin and self._admin_limit_per_minute > 0:
+            checks.append((f"admin-ip:{path}:{ip}", self._admin_limit_per_minute, "Admin rate limit exceeded"))
+
+        for key, limit, message in checks:
             count, retry_after = await self._backend.increment(key, self._window_seconds)
             if count > limit:
                 request_id = getattr(request.state, "request_id", "-")
                 return JSONResponse(
                     status_code=429,
                     content={
-                        "error": ErrorCode.RATE_LIMIT_EXCEEDED,
-                        "message": "Rate limit exceeded",
+                        "error": str(ErrorCode.RATE_LIMIT_EXCEEDED),
+                        "message": message,
                         "request_id": request_id,
                     },
                     headers={"Retry-After": str(retry_after), "X-Request-ID": request_id},

@@ -123,6 +123,20 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
+## Hardening (v1.1)
+
+- **Admin audit trail** for `/deliveries`, `/deliveries/{id}/replay`, `/deliveries/replay-all`, and `/stream/logs` WebSocket auth attempts.
+- Structured audit fields include: `action`, `request_id`, `client_ip`, `auth_result`, `delivery_id`, `status`, `actor` (API key fingerprint; no secrets logged).
+- **Endpoint-specific limits**:
+  - `RATE_LIMIT_ADMIN_PER_MINUTE` (default `20`)
+  - `WS_CONNECTS_PER_MINUTE` (default `10`)
+  - `WS_MAX_CONNECTIONS_PER_IP` (default `3`)
+- **DLQ + replay safeguards**:
+  - Failed-delivery metadata: `replay_attempts`, `last_replay_at`, `last_replay_status`
+  - Cooldown for repeated replay: `REPLAY_COOLDOWN_SECONDS` (default `30`)
+  - Max replay attempts: `MAX_REPLAY_ATTEMPTS` (default `10`), then status moves to `dead_letter`
+  - Replay operation idempotency via `Idempotency-Key` header
+
 ## Testing
 
 ```bash

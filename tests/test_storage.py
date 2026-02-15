@@ -33,6 +33,19 @@ def test_memory_storage_stores_failed_payload() -> None:
     assert record["event_type"] == "push"
     assert record["payload"]["repository"]["full_name"] == "org/repo"
     assert record["delivery_id"] == "abc-123"
+    assert record["replay_attempts"] == 0
+    assert record["last_replay_at"] is None
+    assert record["last_replay_status"] is None
+
+
+def test_memory_storage_replay_operation_idempotency() -> None:
+    storage = MemoryStorage(idempotency_ttl=3600)
+
+    first = asyncio.run(storage.is_duplicate_replay_operation("op-1", 60))
+    second = asyncio.run(storage.is_duplicate_replay_operation("op-1", 60))
+
+    assert first is False
+    assert second is True
 
 
 class _FailingStorage:
