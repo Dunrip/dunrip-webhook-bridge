@@ -1,0 +1,37 @@
+# Webhook Bridge - Multi-Destination Routing Configuration
+#
+# Set the ROUTES_YAML env var to the path of this file (or inline YAML).
+# When no routes are configured the bridge falls back to Telegram-only delivery.
+#
+# Each route has:
+#   name:        Human-readable label
+#   destination: telegram | discord | slack
+#   filter:      (optional) criteria that must ALL match
+#     event_type:  push | pull_request | issues | release | workflow_run | generic
+#     repo:        full_name e.g. "octocat/Hello-World"
+#     branch:      branch name e.g. "main"
+
+routes:
+  # Send everything to Telegram (catch-all)
+  - name: all-to-telegram
+    destination: telegram
+
+  # Mirror releases to Discord
+  - name: releases-to-discord
+    destination: discord
+    filter:
+      event_type: release
+
+  # Notify Slack on pushes to main
+  - name: main-pushes-to-slack
+    destination: slack
+    filter:
+      event_type: push
+      branch: main
+
+  # Example: filter by repo
+  # - name: myrepo-issues-to-slack
+  #   destination: slack
+  #   filter:
+  #     event_type: issues
+  #     repo: myorg/myrepo

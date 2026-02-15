@@ -14,6 +14,7 @@ from config import settings
 from middleware import RateLimitMiddleware, create_rate_limit_backend
 from models import GenericWebhookPayload
 from replay import router as replay_router
+from routing import load_routes, route_event
 from sandbox import router as sandbox_router
 from security import verify_generic_token, verify_github_signature
 from storage import Storage, create_storage_backend
@@ -27,6 +28,7 @@ from tg_client import (
     format_workflow_run_event,
     send_message,
 )
+from websocket import broadcaster, router as ws_router
 
 logging.basicConfig(
     level=settings.log_level,
@@ -86,8 +88,15 @@ def create_app() -> FastAPI:
         ip_limit_per_minute=settings.rate_limit_ip_per_minute,
         token_limit_per_minute=settings.rate_limit_token_per_minute,
     )
+    app.state.routes = load_routes()
     app.include_router(sandbox_router)
     app.include_router(replay_router)
+    app.include_router(ws_router)
+
+    # Conditionally include GitHub App router
+    if settings.github_app_id and settings.github_app_private_key:
+        from github_app import router as github_app_router
+        app.include_router(github_app_router)
 
     @app.get("/metrics", tags=["monitoring"])
     async def metrics() -> PlainTextResponse:
@@ -199,6 +208,54 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Payload must be a JSON object")
 
         message = formatter(payload)
+
+        routes = request.app.state.routes
+        if routes:
+            # Multi-destination routing
+            results = await route_event(routes, message, x_github_event, payload)
+            any_sent = any(r["status"] == "sent" for r in results)
+            any_failed = any(r["status"] == "failed" for r in results)
+
+            if any_sent:
+                TELEGRAM_MESSAGES.labels(status="success").inc()
+            if any_failed:
+                TELEGRAM_MESSAGES.labels(status="failed").inc()
+                await storage.store_failed_delivery(
+                    source="github",
+                    event_type=x_github_event,
+                    payload=payload,
+                    headers={
+                        "x-github-event": x_github_event,
+                        "x-github-delivery": x_github_delivery or "",
+                    },
+                    error="Partial delivery failure",
+                    delivery_id=x_github_delivery,
+                )
+
+            status = "success" if any_sent else ("delivery_failed" if any_failed else "ignored")
+            WEBHOOK_REQUESTS.labels(
+                source="github", event_type=x_github_event, status=status
+            ).inc()
+            WEBHOOK_LATENCY.labels(
+                source="github", event_type=x_github_event
+            ).observe(time.time() - start_time)
+
+            # Broadcast to WebSocket clients
+            await broadcaster.broadcast({
+                "source": "github",
+                "event_type": x_github_event,
+                "status": status,
+                "payload": payload,
+                "routing_results": results,
+            })
+
+            if not any_sent and any_failed:
+                raise HTTPException(status_code=502, detail="Failed to deliver message")
+
+            logger.info("GitHub event routed event=%s results=%s", x_github_event, results)
+            return {"status": "sent", "event": x_github_event, "routing": results}
+
+        # Default: send to Telegram only (no routing configured)
         try:
             await send_message(message)
             TELEGRAM_MESSAGES.labels(status="success").inc()
@@ -228,11 +285,20 @@ def create_app() -> FastAPI:
                 source="github", event_type=x_github_event
             ).observe(time.time() - start_time)
 
+        # Broadcast to WebSocket clients
+        await broadcaster.broadcast({
+            "source": "github",
+            "event_type": x_github_event,
+            "status": "success",
+            "payload": payload,
+        })
+
         logger.info("GitHub event delivered event=%s", x_github_event)
         return {"status": "sent", "event": x_github_event}
 
     @app.post("/webhook/generic", tags=["webhooks"])
     async def generic_webhook(
+        request: Request,
         payload: GenericWebhookPayload,
         _token: str = Depends(verify_generic_token),
         storage: Storage = Depends(_get_storage),
@@ -241,6 +307,39 @@ def create_app() -> FastAPI:
         start_time = time.time()
         logger.info("Received generic webhook title=%s", payload.title)
         message = format_generic(payload.title, payload.body, payload.url)
+        payload_dict = payload.model_dump()
+
+        routes = request.app.state.routes
+        if routes:
+            results = await route_event(routes, message, "generic", payload_dict)
+            any_sent = any(r["status"] == "sent" for r in results)
+            any_failed = any(r["status"] == "failed" for r in results)
+
+            if any_sent:
+                TELEGRAM_MESSAGES.labels(status="success").inc()
+            if any_failed:
+                TELEGRAM_MESSAGES.labels(status="failed").inc()
+                await storage.store_failed_delivery(
+                    source="generic", event_type="generic",
+                    payload=payload_dict, headers={},
+                    error="Partial delivery failure",
+                )
+
+            status = "success" if any_sent else ("delivery_failed" if any_failed else "ignored")
+            WEBHOOK_REQUESTS.labels(source="generic", event_type="generic", status=status).inc()
+            WEBHOOK_LATENCY.labels(source="generic", event_type="generic").observe(time.time() - start_time)
+
+            await broadcaster.broadcast({
+                "source": "generic", "event_type": "generic",
+                "status": status, "payload": payload_dict, "routing_results": results,
+            })
+
+            if not any_sent and any_failed:
+                raise HTTPException(status_code=502, detail="Failed to deliver message")
+
+            return {"status": "sent", "routing": results}
+
+        # Default: Telegram only
         try:
             await send_message(message)
             TELEGRAM_MESSAGES.labels(status="success").inc()
@@ -252,7 +351,7 @@ def create_app() -> FastAPI:
             await storage.store_failed_delivery(
                 source="generic",
                 event_type="generic",
-                payload=payload.model_dump(),
+                payload=payload_dict,
                 headers={},
                 error=str(exc),
             )
@@ -265,6 +364,11 @@ def create_app() -> FastAPI:
             WEBHOOK_LATENCY.labels(
                 source="generic", event_type="generic"
             ).observe(time.time() - start_time)
+
+        await broadcaster.broadcast({
+            "source": "generic", "event_type": "generic",
+            "status": "success", "payload": payload_dict,
+        })
 
         logger.info("Generic webhook delivered")
         return {"status": "sent"}

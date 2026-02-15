@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     rate_limit_ip_per_minute: int = 10
     rate_limit_token_per_minute: int = 30
 
+    # Multi-destination routing
+    routes_yaml: str = ""  # Path to YAML routing config or inline YAML
+
+    # Discord destination
+    discord_webhook_url: str = ""
+
+    # Slack destination
+    slack_webhook_url: str = ""
+
+    # GitHub App
+    github_app_id: str = ""
+    github_app_private_key: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
