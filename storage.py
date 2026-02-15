@@ -1,3 +1,11 @@
+"""Storage backends for idempotency and failed-delivery persistence.
+
+Provides an in-memory backend, Redis backend, and fallback composition that
+degrades gracefully to memory when Redis is unavailable.
+"""
+
+from __future__ import annotations
+
 import json
 import logging
 import time
@@ -12,7 +20,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in no-network envs
     Redis = None
 
     class RedisError(Exception):
-        pass
+        """Fallback Redis error type when redis package is unavailable."""
+
 
 from config import settings
 
@@ -20,7 +29,10 @@ logger = logging.getLogger(__name__)
 
 
 class Storage(Protocol):
+    """Protocol for idempotency and failed-delivery storage implementations."""
+
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
+        """Return True when a delivery ID was already processed recently."""
         ...
 
     async def store_failed_delivery(
@@ -32,6 +44,7 @@ class Storage(Protocol):
         error: str | None = None,
         delivery_id: str | None = None,
     ) -> str:
+        """Persist a failed delivery record and return its generated ID."""
         ...
 
     async def list_failed_deliveries(
@@ -41,23 +54,35 @@ class Storage(Protocol):
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
+        """List failed deliveries with optional filtering and pagination."""
         ...
 
     async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        """Fetch a failed delivery by ID."""
         ...
 
     async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        """Update status for a failed delivery record."""
         ...
 
 
 class MemoryStorage:
+    """In-memory storage backend for local/dev/test usage."""
+
     def __init__(self, idempotency_ttl: int, failed_delivery_ttl: int = 604800) -> None:
+        """Initialize in-memory storage.
+
+        Args:
+            idempotency_ttl: Number of seconds to remember delivery IDs.
+            failed_delivery_ttl: Number of seconds to keep failed delivery records.
+        """
         self._idempotency_ttl = idempotency_ttl
         self._failed_delivery_ttl = failed_delivery_ttl
         self._idempotency_store: dict[str, float] = {}
         self.failed_deliveries: dict[str, dict[str, Any]] = {}
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
+        """Check and record delivery IDs for idempotency."""
         if not delivery_id:
             return False
 
@@ -84,6 +109,7 @@ class MemoryStorage:
         error: str | None = None,
         delivery_id: str | None = None,
     ) -> str:
+        """Store a failed delivery record in memory."""
         now = time.time()
         cutoff = now - self._failed_delivery_ttl
         if len(self.failed_deliveries) > 1000:
@@ -114,6 +140,7 @@ class MemoryStorage:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
+        """List failed deliveries with filtering and pagination."""
         records = list(self.failed_deliveries.values())
         if source:
             records = [r for r in records if r["source"] == source]
@@ -124,21 +151,35 @@ class MemoryStorage:
         return records[offset : offset + limit], total
 
     async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        """Get a failed delivery by ID from memory."""
         return self.failed_deliveries.get(failed_id)
 
     async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        """Update status of an in-memory failed delivery record."""
         record = self.failed_deliveries.get(failed_id)
         if record:
             record["status"] = status
 
 
 class RedisStorage:
+    """Redis-backed storage backend for production persistence."""
+
     def __init__(
         self,
         redis_client: Any,
         key_prefix: str,
         idempotency_ttl: int,
     ) -> None:
+        """Initialize Redis storage.
+
+        Args:
+            redis_client: Async Redis client instance.
+            key_prefix: Namespace prefix for all Redis keys.
+            idempotency_ttl: TTL in seconds for delivery-id idempotency keys.
+
+        Raises:
+            RedisError: If redis package is unavailable.
+        """
         if Redis is None:
             raise RedisError("redis package is not installed")
         self._redis = redis_client
@@ -146,15 +187,19 @@ class RedisStorage:
         self._idempotency_ttl = idempotency_ttl
 
     def _delivery_key(self, delivery_id: str) -> str:
+        """Build Redis key for idempotency tracking."""
         return f"{self._key_prefix}:delivery:{delivery_id}"
 
     def _failed_key(self, failed_id: str) -> str:
+        """Build Redis key for an individual failed delivery record."""
         return f"{self._key_prefix}:failed:{failed_id}"
 
     def _failed_index_key(self) -> str:
+        """Build Redis list key storing failed-delivery IDs."""
         return f"{self._key_prefix}:failed:index"
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
+        """Atomically check/set idempotency key in Redis."""
         if not delivery_id:
             return False
         was_set = await self._redis.set(
@@ -174,6 +219,7 @@ class RedisStorage:
         error: str | None = None,
         delivery_id: str | None = None,
     ) -> str:
+        """Store failed delivery record and index it in Redis."""
         failed_id = str(uuid.uuid4())
         record = {
             "id": failed_id,
@@ -197,6 +243,7 @@ class RedisStorage:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
+        """List failed deliveries stored in Redis."""
         failed_ids = await self._redis.lrange(self._failed_index_key(), 0, -1)
         if not failed_ids:
             return [], 0
@@ -221,6 +268,7 @@ class RedisStorage:
         return records[offset : offset + limit], total
 
     async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        """Fetch failed delivery record from Redis."""
         raw = await self._redis.get(self._failed_key(failed_id))
         if not raw:
             return None
@@ -230,6 +278,7 @@ class RedisStorage:
             return None
 
     async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        """Update failed delivery status in Redis."""
         record = await self.get_failed_delivery(failed_id)
         if not record:
             return
@@ -238,12 +287,15 @@ class RedisStorage:
 
 
 class FallbackStorage:
+    """Storage wrapper that falls back to memory when primary backend fails."""
+
     def __init__(self, primary: Storage, fallback: Storage) -> None:
         self._primary = primary
         self._fallback = fallback
         self._warned = False
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
+        """Check idempotency using primary storage, then fallback if needed."""
         try:
             return await self._primary.is_duplicate_delivery(delivery_id)
         except RedisError as exc:
@@ -264,6 +316,7 @@ class FallbackStorage:
         error: str | None = None,
         delivery_id: str | None = None,
     ) -> str:
+        """Store failed delivery on primary backend, or fallback on Redis errors."""
         try:
             return await self._primary.store_failed_delivery(
                 source=source,
@@ -296,18 +349,21 @@ class FallbackStorage:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
+        """List failed deliveries with fallback behavior."""
         try:
             return await self._primary.list_failed_deliveries(source, status, limit, offset)
         except RedisError:
             return await self._fallback.list_failed_deliveries(source, status, limit, offset)
 
     async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        """Get failed delivery by ID with fallback behavior."""
         try:
             return await self._primary.get_failed_delivery(failed_id)
         except RedisError:
             return await self._fallback.get_failed_delivery(failed_id)
 
     async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        """Update failed delivery status with fallback behavior."""
         try:
             await self._primary.update_failed_delivery_status(failed_id, status)
         except RedisError:
@@ -315,6 +371,14 @@ class FallbackStorage:
 
 
 def create_storage_backend(redis_client: Any | None = None) -> Storage:
+    """Create configured storage backend.
+
+    Args:
+        redis_client: Optional initialized async Redis client.
+
+    Returns:
+        Storage implementation based on configuration and runtime availability.
+    """
     memory_backend = MemoryStorage(
         idempotency_ttl=settings.idempotency_ttl,
         failed_delivery_ttl=settings.failed_delivery_ttl,

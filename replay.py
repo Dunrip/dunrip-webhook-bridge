@@ -1,8 +1,13 @@
+"""Admin endpoints for listing and replaying failed webhook deliveries."""
+
+from __future__ import annotations
+
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from exceptions import ValidationError
 from formatters import get_formatter
 from security import verify_admin_api_key
 from storage import Storage
@@ -14,11 +19,20 @@ router = APIRouter(tags=["replay"])
 
 
 def _get_storage(request: Request) -> Storage:
+    """Resolve storage backend from application state."""
     return request.app.state.storage
 
 
 async def _replay_delivery(record: dict[str, Any], storage: Storage) -> str:
-    """Re-send a failed delivery to Telegram. Returns new status."""
+    """Replay a single failed delivery.
+
+    Args:
+        record: Failed-delivery record from storage.
+        storage: Storage backend used to update delivery status.
+
+    Returns:
+        New delivery status, either ``delivered`` or ``failed``.
+    """
     source = record["source"]
     event_type = record["event_type"]
     payload = record["payload"]
@@ -54,7 +68,19 @@ async def list_deliveries(
     _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, Any]:
-    """List failed deliveries from storage."""
+    """List failed deliveries from storage.
+
+    Args:
+        source: Optional source filter (e.g., ``github`` or ``generic``).
+        status: Optional status filter.
+        limit: Maximum number of records to return.
+        offset: Pagination offset.
+        _auth: Admin auth dependency marker.
+        storage: Resolved storage backend.
+
+    Returns:
+        JSON object with delivery list and total matching count.
+    """
     deliveries, total = await storage.list_failed_deliveries(
         source=source, status=status, limit=limit, offset=offset,
     )
@@ -67,10 +93,26 @@ async def replay_delivery(
     _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, str]:
-    """Retry a specific failed delivery."""
+    """Replay one failed delivery by ID.
+
+    Args:
+        delivery_id: Failed-delivery identifier.
+        _auth: Admin auth dependency marker.
+        storage: Resolved storage backend.
+
+    Returns:
+        JSON object with updated replay status and delivery ID.
+
+    Raises:
+        ValidationError: Delivery ID is unknown.
+    """
     record = await storage.get_failed_delivery(delivery_id)
     if not record:
-        raise HTTPException(status_code=404, detail="Delivery not found")
+        raise ValidationError(
+            "Delivery not found",
+            error_code="delivery_not_found",
+            status_code=404,
+        )
 
     new_status = await _replay_delivery(record, storage)
     return {"status": new_status, "delivery_id": delivery_id}
@@ -81,7 +123,15 @@ async def replay_all(
     _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, int]:
-    """Retry all failed deliveries."""
+    """Replay all currently failed deliveries.
+
+    Args:
+        _auth: Admin auth dependency marker.
+        storage: Resolved storage backend.
+
+    Returns:
+        Replay summary containing attempted/succeeded/failed counts.
+    """
     failed, _ = await storage.list_failed_deliveries(status="failed", limit=1000, offset=0)
 
     attempted = 0

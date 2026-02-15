@@ -76,7 +76,7 @@ def test_list_deliveries_requires_auth(monkeypatch) -> None:
     client = _client(monkeypatch)
     response = client.get("/deliveries", headers={"X-API-Key": "wrong-key"})
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid API key"
+    assert response.json()["message"] == "Invalid API key"
 
 
 def test_list_deliveries_empty(monkeypatch) -> None:
@@ -177,7 +177,7 @@ def test_replay_delivery_not_found(monkeypatch) -> None:
 
     response = client.post("/deliveries/nonexistent-id/replay")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Delivery not found"
+    assert response.json()["message"] == "Delivery not found"
 
 
 def test_replay_delivery_telegram_failure(monkeypatch) -> None:

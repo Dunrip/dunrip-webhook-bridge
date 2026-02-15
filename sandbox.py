@@ -69,15 +69,19 @@ async def github_sandbox(
     try:
         payload = json.loads(body) if body else {}
     except json.JSONDecodeError:
+        request_id = getattr(request.state, "request_id", "-")
         return JSONResponse(
             status_code=400,
-            content={"detail": "Malformed JSON payload"},
+            content={"error": "VALIDATION_ERROR", "message": "Malformed JSON payload", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
         )
 
     if not isinstance(payload, dict):
+        request_id = getattr(request.state, "request_id", "-")
         return JSONResponse(
             status_code=400,
-            content={"detail": "Payload must be a JSON object"},
+            content={"error": "VALIDATION_ERROR", "message": "Payload must be a JSON object", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
         )
 
     formatter = get_formatter(x_github_event)

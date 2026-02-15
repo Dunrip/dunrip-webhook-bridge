@@ -1,20 +1,28 @@
+"""FastAPI application entrypoint for the webhook bridge service.
+
+This module wires app lifecycle, middleware, observability, routing, and
+webhook endpoints for GitHub and generic payload forwarding.
+"""
+
 import json
 import logging
 import time
 from contextlib import asynccontextmanager
 from json import JSONDecodeError
-from typing import Any
-
 import httpx
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
 
 from circuit_breaker import telegram_circuit
 from config import settings
+from errors import ErrorCode
+from exceptions import CircuitBreakerError, ValidationError, WebhookError
 from formatters import get_formatter
-from middleware import RateLimitMiddleware, create_rate_limit_backend
+from middleware import RequestContextMiddleware, RateLimitMiddleware, create_rate_limit_backend
+from observability import RequestContextFilter
 from models import GenericWebhookPayload
 from replay import router as replay_router
 from routing import load_routes, route_event
@@ -26,35 +34,72 @@ from websocket import broadcaster, router as ws_router
 
 logging.basicConfig(
     level=settings.log_level,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format="%(asctime)s %(levelname)s [request_id=%(request_id)s] %(name)s: %(message)s",
 )
+for handler in logging.getLogger().handlers:
+    handler.addFilter(RequestContextFilter())
 logger = logging.getLogger(__name__)
 
-# Prometheus metrics
-WEBHOOK_REQUESTS = Counter(
+# Prometheus metrics with guards to avoid duplicate registration in tests
+def _get_or_create_counter(name: str, description: str, labels: list[str]) -> Counter:
+    from prometheus_client import REGISTRY
+    if name in REGISTRY._names_to_collectors:
+        return REGISTRY._names_to_collectors[name]
+    return Counter(name, description, labels)
+
+
+def _get_or_create_histogram(name: str, description: str, labels: list[str], buckets: list[float] | None = None) -> Histogram:
+    from prometheus_client import REGISTRY
+    if name in REGISTRY._names_to_collectors:
+        return REGISTRY._names_to_collectors[name]
+    if buckets:
+        return Histogram(name, description, labels, buckets=buckets)
+    return Histogram(name, description, labels)
+
+
+WEBHOOK_REQUESTS = _get_or_create_counter(
     "webhook_requests_total",
     "Total webhook requests",
     ["source", "event_type", "status"]
 )
 
-WEBHOOK_LATENCY = Histogram(
+WEBHOOK_LATENCY = _get_or_create_histogram(
     "webhook_request_duration_seconds",
     "Webhook request latency",
     ["source", "event_type"],
     buckets=[.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0]
 )
 
-TELEGRAM_MESSAGES = Counter(
+TELEGRAM_MESSAGES = _get_or_create_counter(
     "telegram_messages_total",
     "Total Telegram messages sent",
     ["status"]
 )
 
-CIRCUIT_BREAKER_STATE = Counter(
+CIRCUIT_BREAKER_STATE = _get_or_create_counter(
     "circuit_breaker_state_changes_total",
     "Circuit breaker state changes",
     ["from_state", "to_state"]
 )
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", "-")
+
+
+def _error_response(request: Request, status_code: int, code: ErrorCode | str, message: str) -> JSONResponse:
+    """Build a standardized JSON error response payload."""
+    rid = _request_id(request)
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": str(code), "message": message, "request_id": rid},
+        headers={"X-Request-ID": rid},
+    )
+
+
+def _with_request_id_footer(message: str, request_id: str) -> str:
+    return f"{message}\n\n`request_id: {request_id}`"
+
 
 def _initialize_app_state(app: FastAPI) -> None:
     if not hasattr(app.state, "http"):
@@ -84,6 +129,7 @@ def _get_storage(request: Request) -> Storage:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage startup and shutdown resources for the FastAPI app."""
     _initialize_app_state(app)
 
     try:
@@ -99,6 +145,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """Create and configure the FastAPI application instance."""
     app = FastAPI(
         title="Webhook-to-Telegram Bridge",
         version="1.3.0",
@@ -112,6 +159,7 @@ def create_app() -> FastAPI:
         ip_limit_per_minute=settings.rate_limit_ip_per_minute,
         token_limit_per_minute=settings.rate_limit_token_per_minute,
     )
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(sandbox_router)
     app.include_router(replay_router)
     app.include_router(ws_router)
@@ -120,6 +168,19 @@ def create_app() -> FastAPI:
     if settings.github_app_id and settings.github_app_private_key:
         from github_app import router as github_app_router
         app.include_router(github_app_router)
+
+    @app.exception_handler(WebhookError)
+    async def webhook_error_handler(request: Request, exc: WebhookError) -> JSONResponse:
+        return _error_response(request, exc.status_code, exc.error_code, exc.message)
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        return _error_response(request, exc.status_code, "http_error", str(exc.detail))
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        logger.warning("request_validation_failed errors=%s", exc.errors())
+        return _error_response(request, 422, "validation_error", "Request validation failed")
 
     @app.get("/metrics", tags=["monitoring"])
     async def metrics() -> PlainTextResponse:
@@ -179,14 +240,14 @@ def create_app() -> FastAPI:
         """Receive GitHub webhooks and forward to Telegram."""
         start_time = time.time()
         logger.info(
-            "Received GitHub webhook event=%s delivery=%s",
+            "webhook_received source=github event_type=%s delivery_id=%s",
             x_github_event,
             x_github_delivery,
         )
 
         try:
             body = await verify_github_signature(request)
-        except HTTPException as exc:
+        except WebhookError:
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="auth_error"
             ).inc()
@@ -194,13 +255,15 @@ def create_app() -> FastAPI:
 
         # Idempotency check (after signature verification to prevent poisoning)
         if await storage.is_duplicate_delivery(x_github_delivery):
-            logger.info("Duplicate delivery %s ignored", x_github_delivery)
+            logger.warning("webhook_duplicate source=github event_type=%s delivery_id=%s", x_github_event, x_github_delivery)
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="duplicate"
             ).inc()
-            return JSONResponse(
-                status_code=409,
-                content={"status": "duplicate", "delivery_id": x_github_delivery or "unknown"},
+            return _error_response(
+                request,
+                409,
+                "duplicate_delivery",
+                f"Duplicate delivery: {x_github_delivery or 'unknown'}",
             )
 
         if x_github_event == "ping":
@@ -216,7 +279,7 @@ def create_app() -> FastAPI:
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="malformed_json"
             ).inc()
-            raise HTTPException(status_code=400, detail="Malformed JSON payload") from exc
+            raise ValidationError("Malformed JSON payload", error_code="malformed_json") from exc
 
         formatter = get_formatter(x_github_event)
         if not formatter:
@@ -231,7 +294,7 @@ def create_app() -> FastAPI:
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="invalid_payload"
             ).inc()
-            raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+            raise ValidationError("Payload must be a JSON object")
 
         message = formatter(payload)
 
@@ -265,12 +328,21 @@ def create_app() -> FastAPI:
                 )
 
             status = "success" if any_sent else ("delivery_failed" if any_failed else "ignored")
+            duration = time.time() - start_time
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status=status
             ).inc()
             WEBHOOK_LATENCY.labels(
                 source="github", event_type=x_github_event
-            ).observe(time.time() - start_time)
+            ).observe(duration)
+            logger.info(
+                "webhook_delivery source=github event_type=%s delivery_id=%s status=%s duration_ms=%.2f routed=%d",
+                x_github_event,
+                x_github_delivery,
+                status,
+                duration * 1000,
+                len(results),
+            )
 
             # Broadcast to WebSocket clients
             await broadcaster.broadcast({
@@ -282,7 +354,7 @@ def create_app() -> FastAPI:
             })
 
             if not any_sent and any_failed:
-                raise HTTPException(status_code=502, detail="Failed to deliver message")
+                raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502)
 
             logger.info("GitHub event routed event=%s results=%s", x_github_event, results)
             return {"status": "sent", "event": x_github_event, "routing": results}
@@ -311,7 +383,7 @@ def create_app() -> FastAPI:
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="delivery_failed"
             ).inc()
-            raise HTTPException(status_code=502, detail="Failed to deliver message") from exc
+            raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502) from exc
         finally:
             WEBHOOK_LATENCY.labels(
                 source="github", event_type=x_github_event
@@ -337,7 +409,7 @@ def create_app() -> FastAPI:
     ) -> dict[str, str]:
         """Receive generic webhooks and forward to Telegram."""
         start_time = time.time()
-        logger.info("Received generic webhook title=%s", payload.title)
+        logger.info("webhook_received source=generic event_type=generic title=%s", payload.title)
         message = format_generic(payload.title, payload.body, payload.url)
         payload_dict = payload.model_dump()
 
@@ -364,8 +436,15 @@ def create_app() -> FastAPI:
                 )
 
             status = "success" if any_sent else ("delivery_failed" if any_failed else "ignored")
+            duration = time.time() - start_time
             WEBHOOK_REQUESTS.labels(source="generic", event_type="generic", status=status).inc()
-            WEBHOOK_LATENCY.labels(source="generic", event_type="generic").observe(time.time() - start_time)
+            WEBHOOK_LATENCY.labels(source="generic", event_type="generic").observe(duration)
+            logger.info(
+                "webhook_delivery source=generic event_type=generic status=%s duration_ms=%.2f routed=%d",
+                status,
+                duration * 1000,
+                len(results),
+            )
 
             await broadcaster.broadcast({
                 "source": "generic", "event_type": "generic",
@@ -373,7 +452,7 @@ def create_app() -> FastAPI:
             })
 
             if not any_sent and any_failed:
-                raise HTTPException(status_code=502, detail="Failed to deliver message")
+                raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502)
 
             return {"status": "sent", "routing": results}
 
@@ -397,7 +476,7 @@ def create_app() -> FastAPI:
             WEBHOOK_REQUESTS.labels(
                 source="generic", event_type="generic", status="delivery_failed"
             ).inc()
-            raise HTTPException(status_code=502, detail="Failed to deliver message") from exc
+            raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502) from exc
         finally:
             WEBHOOK_LATENCY.labels(
                 source="generic", event_type="generic"

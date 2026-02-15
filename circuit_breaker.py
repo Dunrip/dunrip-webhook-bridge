@@ -8,6 +8,7 @@ from functools import wraps
 from typing import Any, Callable, TypeVar
 
 from config import settings
+from exceptions import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,13 @@ class CircuitState(Enum):
 
 class CircuitBreaker:
     """Circuit breaker for external service calls.
-    
-    - CLOSED: Normal operation, requests pass through
-    - OPEN: After threshold failures, reject immediately  
-    - HALF_OPEN: After timeout, allow one test request
+
+    The breaker starts in ``CLOSED`` and allows all calls. Once failures hit the
+    configured threshold, it moves to ``OPEN`` and fast-fails requests. After the
+    timeout window elapses, it transitions to ``HALF_OPEN`` to allow a limited
+    number of probe calls and determine whether the downstream service recovered.
     """
-    
+
     def __init__(
         self,
         failure_threshold: int | None = None,
@@ -177,8 +179,9 @@ class CircuitBreaker:
         return async_wrapper  # type: ignore[return-value]
 
 
-class CircuitBreakerOpenError(RuntimeError):
-    """Raised when circuit breaker is open."""
+class CircuitBreakerOpenError(CircuitBreakerError):
+    """Backward-compatible alias for open-circuit errors."""
+
     pass
 
 

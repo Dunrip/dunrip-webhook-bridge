@@ -4,9 +4,11 @@ import json
 
 import pytest
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 import security
+from exceptions import WebhookError
 
 
 def _sign(payload: bytes, secret: str) -> str:
@@ -16,6 +18,10 @@ def _sign(payload: bytes, secret: str) -> str:
 
 def _build_client(client_host: str = "testclient") -> TestClient:
     app = FastAPI()
+
+    @app.exception_handler(WebhookError)
+    async def _webhook_error_handler(request: Request, exc: WebhookError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"message": exc.message})
 
     @app.post("/github")
     async def github(request: Request) -> dict[str, int]:
@@ -60,7 +66,7 @@ def test_verify_github_signature_missing_header(monkeypatch) -> None:
     response = client.post("/github", content=b"{}")
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Missing signature header"
+    assert response.json()["message"] == "Missing signature header"
 
 
 def test_verify_github_signature_invalid(monkeypatch) -> None:
@@ -74,7 +80,7 @@ def test_verify_github_signature_invalid(monkeypatch) -> None:
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid signature"
+    assert response.json()["message"] == "Invalid signature"
 
 
 def test_verify_github_signature_body_too_large(monkeypatch) -> None:
@@ -91,7 +97,7 @@ def test_verify_github_signature_body_too_large(monkeypatch) -> None:
     )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == "Payload too large"
+    assert response.json()["message"] == "Payload too large"
 
 
 def test_verify_generic_token_valid(monkeypatch) -> None:
@@ -111,7 +117,7 @@ def test_verify_generic_token_missing(monkeypatch) -> None:
     response = client.post("/generic")
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Missing token header"
+    assert response.json()["message"] == "Missing token header"
 
 
 def test_verify_generic_token_invalid(monkeypatch) -> None:
@@ -121,7 +127,7 @@ def test_verify_generic_token_invalid(monkeypatch) -> None:
     response = client.post("/generic", headers={"X-Webhook-Token": "wrong"})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid token"
+    assert response.json()["message"] == "Invalid token"
 
 
 def test_verify_admin_api_key_valid_x_api_key(monkeypatch) -> None:
@@ -151,7 +157,7 @@ def test_verify_admin_api_key_missing(monkeypatch) -> None:
     response = client.get("/admin")
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Missing API key"
+    assert response.json()["message"] == "Missing API key"
 
 
 def test_verify_admin_api_key_invalid(monkeypatch) -> None:
@@ -161,7 +167,7 @@ def test_verify_admin_api_key_invalid(monkeypatch) -> None:
     response = client.get("/admin", headers={"X-API-Key": "wrong"})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid API key"
+    assert response.json()["message"] == "Invalid API key"
 
 
 def test_get_client_ip_ignores_xff_when_no_trusted_proxies(monkeypatch) -> None:
@@ -195,3 +201,39 @@ def test_get_client_ip_falls_back_when_proxy_untrusted(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["ip"] == "198.51.100.10"
+
+
+def test_get_client_ip_ignores_invalid_xff_ip(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "trusted_proxies", "192.0.2.0/24")
+    client = _build_client(client_host="192.0.2.10")
+
+    response = client.get("/client-ip", headers={"X-Forwarded-For": "not-an-ip"})
+
+    assert response.status_code == 200
+    assert response.json()["ip"] == "192.0.2.10"
+
+
+def test_validate_admin_api_key_headers_accepts_raw_authorization(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+
+    assert security.validate_admin_api_key_headers(
+        {"authorization": "adminkey"}
+    ) is True
+
+
+def test_validate_admin_api_key_headers_prefers_x_api_key(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "adminkey")
+
+    assert security.validate_admin_api_key_headers(
+        {"authorization": "Bearer wrong", "x-api-key": "adminkey"}
+    ) is True
+
+
+def test_verify_admin_api_key_unconfigured_returns_503(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
+    client = _build_client()
+
+    response = client.get("/admin", headers={"X-API-Key": "anything"})
+
+    assert response.status_code == 503
+    assert response.json()["message"] == "Admin API key not configured"

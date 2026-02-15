@@ -144,3 +144,31 @@ def test_half_open_allows_only_one_concurrent_trial():
 
     asyncio.run(run_race())
     assert cb.state == CircuitState.CLOSED
+
+
+def test_record_success_never_drops_failure_count_below_zero():
+    cb = CircuitBreaker(failure_threshold=3, timeout=10)
+
+    cb.record_success()
+    cb.record_success()
+
+    assert cb._failure_count == 0
+
+
+def test_half_open_respects_max_calls_limit():
+    cb = CircuitBreaker(failure_threshold=1, timeout=0.05, half_open_max_calls=2)
+    cb.record_failure()
+    assert cb.state == CircuitState.OPEN
+
+    time.sleep(0.06)
+    assert cb.can_execute() is True
+    assert cb.can_execute() is True
+    assert cb.can_execute() is False
+
+
+def test_open_without_last_failure_time_stays_blocked():
+    cb = CircuitBreaker(failure_threshold=1, timeout=0)
+    cb._state = CircuitState.OPEN
+    cb._last_failure_time = None
+
+    assert cb.can_execute() is False

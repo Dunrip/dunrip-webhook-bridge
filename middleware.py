@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import settings
+from errors import ErrorCode
+from observability import new_request_id, request_id_ctx
 from security import get_client_ip
 
 try:
@@ -79,6 +81,32 @@ class FallbackRateLimitBackend:
             return await self._fallback.increment(key, window_seconds)
 
 
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request_id = request.headers.get("x-request-id") or new_request_id()
+        request.state.request_id = request_id
+
+        token = request_id_ctx.set(request_id)
+        start = time.perf_counter()
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            logger.info(
+                "request_completed method=%s path=%s status=%d duration_ms=%.2f client_ip=%s",
+                request.method,
+                request.url.path,
+                status_code,
+                duration_ms,
+                get_client_ip(request),
+            )
+            request_id_ctx.reset(token)
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
@@ -114,10 +142,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         for key, limit in checks:
             count, retry_after = await self._backend.increment(key, self._window_seconds)
             if count > limit:
+                request_id = getattr(request.state, "request_id", "-")
                 return JSONResponse(
                     status_code=429,
-                    content={"detail": "Rate limit exceeded"},
-                    headers={"Retry-After": str(retry_after)},
+                    content={
+                        "error": ErrorCode.RATE_LIMIT_EXCEEDED,
+                        "message": "Rate limit exceeded",
+                        "request_id": request_id,
+                    },
+                    headers={"Retry-After": str(retry_after), "X-Request-ID": request_id},
                 )
 
         return await call_next(request)

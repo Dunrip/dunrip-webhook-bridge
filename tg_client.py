@@ -10,6 +10,7 @@ from telegram.error import NetworkError, RetryAfter, TimedOut
 
 from circuit_breaker import telegram_circuit
 from config import settings
+from observability import get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ async def send_message(
     """Send a MarkdownV2 message to the configured chat with bounded retries."""
     if retries is None:
         retries = settings.telegram_retries
+
+    request_id = get_request_id()
+    if request_id != "-" and "request_id:" not in text:
+        text = f"{text}\n\n`request_id: {request_id}`"
 
     # Check circuit breaker first
     if not telegram_circuit.can_execute():

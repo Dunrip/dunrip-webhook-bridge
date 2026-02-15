@@ -126,7 +126,7 @@ def test_github_malformed_json(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Malformed JSON payload"
+    assert response.json()["message"] == "Malformed JSON payload"
 
 
 def test_github_invalid_signature(monkeypatch) -> None:
@@ -139,7 +139,7 @@ def test_github_invalid_signature(monkeypatch) -> None:
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid signature"
+    assert response.json()["message"] == "Invalid signature"
 
 
 def test_github_payload_must_be_object(monkeypatch) -> None:
@@ -153,7 +153,7 @@ def test_github_payload_must_be_object(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Payload must be a JSON object"
+    assert response.json()["message"] == "Payload must be a JSON object"
 
 
 def test_github_send_failure_returns_502(monkeypatch) -> None:
@@ -172,7 +172,7 @@ def test_github_send_failure_returns_502(monkeypatch) -> None:
     )
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Failed to deliver message"
+    assert response.json()["message"] == "Failed to deliver message"
 
 
 def test_github_idempotency_duplicate_ignored(monkeypatch) -> None:
@@ -214,7 +214,7 @@ def test_github_idempotency_duplicate_ignored(monkeypatch) -> None:
         },
     )
     assert response2.status_code == 409
-    assert response2.json()["status"] == "duplicate"
+    assert "Duplicate delivery" in response2.json()["message"]
     assert call_count == 1  # Should not increase
 
 
@@ -304,7 +304,7 @@ def test_generic_missing_token(monkeypatch) -> None:
     client = _client(monkeypatch)
     response = client.post("/webhook/generic", json={"title": "A", "body": "B"})
     assert response.status_code == 401
-    assert response.json()["detail"] == "Missing token header"
+    assert response.json()["message"] == "Missing token header"
 
 
 def test_generic_invalid_payload(monkeypatch) -> None:
@@ -332,7 +332,7 @@ def test_generic_send_failure_returns_502(monkeypatch) -> None:
     )
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Failed to deliver message"
+    assert response.json()["message"] == "Failed to deliver message"
 
 
 def test_github_failure_is_stored(monkeypatch) -> None:
