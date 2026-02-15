@@ -3,3 +3,4 @@ uvicorn[standard]>=0.29,<1
 python-telegram-bot>=20.8,<22
 pydantic-settings>=2.2,<3
 python-dotenv>=1.0,<2
+pytest>=8.0,<9
