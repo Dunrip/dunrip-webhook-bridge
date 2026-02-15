@@ -11,6 +11,7 @@ from tg_client import TelegramSendError
 def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "github_webhook_secret", "gh-secret")
     monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
+    monkeypatch.setattr(main.settings, "admin_api_key", "admin-test-key")
     monkeypatch.setattr(main.settings, "max_body_size", 1024 * 1024)
     monkeypatch.setattr(main.settings, "idempotency_ttl", 3600)
     monkeypatch.setattr(main.settings, "failed_delivery_ttl", 604800)
@@ -21,7 +22,12 @@ def _client(monkeypatch) -> TestClient:
     from circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
-    return TestClient(app)
+    # TestClient only runs lifespan when used as a context manager; these tests
+    # instantiate it directly, so initialize shared app.state dependencies here.
+    main._initialize_app_state(app)
+    client = TestClient(app)
+    client.headers.update({"X-API-Key": "admin-test-key"})
+    return client
 
 
 def _seed_failures(storage: MemoryStorage) -> list[str]:
@@ -64,6 +70,13 @@ def _seed_failures(storage: MemoryStorage) -> list[str]:
 
     loop.close()
     return ids
+
+
+def test_list_deliveries_requires_auth(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    response = client.get("/deliveries", headers={"X-API-Key": "wrong-key"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid API key"
 
 
 def test_list_deliveries_empty(monkeypatch) -> None:
@@ -271,3 +284,27 @@ def test_replay_all_empty(monkeypatch) -> None:
     assert data["attempted"] == 0
     assert data["succeeded"] == 0
     assert data["failed"] == 0
+
+
+def test_replay_unknown_event_formatter_is_counted_as_failed(monkeypatch) -> None:
+    """Unknown event types should not crash replay and should be counted as failed."""
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(storage.store_failed_delivery(
+        source="github",
+        event_type="fork",  # no registered formatter
+        payload={"repository": {"full_name": "org/repo"}},
+        headers={"x-github-event": "fork"},
+        error="initial failure",
+    ))
+    loop.close()
+
+    response = client.post("/deliveries/replay-all")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["attempted"] == 1
+    assert data["succeeded"] == 0
+    assert data["failed"] == 1

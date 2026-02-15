@@ -213,7 +213,7 @@ def test_github_idempotency_duplicate_ignored(monkeypatch) -> None:
             "X-GitHub-Delivery": delivery_id,
         },
     )
-    assert response2.status_code == 200
+    assert response2.status_code == 409
     assert response2.json()["status"] == "duplicate"
     assert call_count == 1  # Should not increase
 

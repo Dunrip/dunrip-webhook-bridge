@@ -27,6 +27,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
 import yaml
 
 from config import settings
@@ -92,7 +94,7 @@ def _extract_branch(event_type: str, payload: dict[str, Any]) -> str:
     return ""
 
 
-def _build_destination(name: str) -> Destination | None:
+def _build_destination(name: str, http_client: httpx.AsyncClient | None = None) -> Destination | None:
     """Instantiate a destination by name, using current settings."""
     if name == "telegram":
         return TelegramDestination()
@@ -101,13 +103,13 @@ def _build_destination(name: str) -> Destination | None:
         if not url:
             logger.warning("Route references 'discord' but DISCORD_WEBHOOK_URL is not set")
             return None
-        return DiscordDestination(url)
+        return DiscordDestination(url, http_client=http_client)
     if name == "slack":
         url = settings.slack_webhook_url
         if not url:
             logger.warning("Route references 'slack' but SLACK_WEBHOOK_URL is not set")
             return None
-        return SlackDestination(url)
+        return SlackDestination(url, http_client=http_client)
     logger.warning("Unknown destination %r in route config", name)
     return None
 
@@ -170,6 +172,7 @@ async def route_event(
     message: str,
     event_type: str,
     payload: dict[str, Any],
+    http_client: httpx.AsyncClient | None = None,
 ) -> list[dict[str, str]]:
     """Evaluate all routes and deliver *message* to matching destinations.
 
@@ -182,7 +185,7 @@ async def route_event(
         if not route.filter.matches(event_type, payload):
             continue
 
-        dest = _build_destination(route.destination_name)
+        dest = _build_destination(route.destination_name, http_client=http_client)
         if dest is None:
             results.append({"route": route.name, "destination": route.destination_name, "status": "skipped"})
             continue

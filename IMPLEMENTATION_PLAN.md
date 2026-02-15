@@ -2,7 +2,7 @@
 
 ## Phase 1: "Actually Production" (Priority: Critical)
 
-### 1.1 Redis Persistence for Idempotency + Failed Queue
+### 1.1 Redis Persistence for Idempotency + Failed Queue ✅ DONE
 **Why:** Survives restarts, enables replay
 **Files:**
 - `storage.py` - Abstract storage interface + Redis implementation
@@ -11,10 +11,10 @@
 - `docker-compose.yml` - Add Redis service
 
 **Acceptance Criteria:**
-- [ ] `STORAGE_BACKEND=redis` env var works
-- [ ] Restarting container doesn't lose idempotency state
-- [ ] Failed deliveries stored with full payload
-- [ ] SQLite fallback for simple deployments
+- [x] `STORAGE_BACKEND=redis` env var works
+- [x] Restarting container doesn't lose idempotency state
+- [x] Failed deliveries stored with full payload
+- [x] SQLite fallback for simple deployments
 
 ### 1.2 Rate Limiting Middleware
 **Why:** Prevent DDoS, protect Telegram API
@@ -58,19 +58,19 @@
 - [ ] Shows parsed payload fields
 - [ ] Returns 200 with preview JSON
 
-### 2.2 Failed Delivery Replay API
+### 2.2 Failed Delivery Replay API ✅ DONE
 **Why:** Retry failed webhooks manually
 **Files:**
 - `replay.py` - Replay endpoints + logic
 - `main.py` - Add `/deliveries`, `/deliveries/{id}/replay`
 
 **Acceptance Criteria:**
-- [ ] `GET /deliveries` lists failed deliveries with filters
-- [ ] `POST /deliveries/{id}/replay` retries specific delivery
-- [ ] `POST /deliveries/replay-all` retries all failed
-- [ ] Updates delivery status after replay
+- [x] `GET /deliveries` lists failed deliveries with filters
+- [x] `POST /deliveries/{id}/replay` retries specific delivery
+- [x] `POST /deliveries/replay-all` retries all failed
+- [x] Updates delivery status after replay
 
-### 2.3 Jinja2 Template Engine
+### 2.3 Jinja2 Template Engine ✅ DONE
 **Why:** Custom message formatting
 **Files:**
 - `templates.py` - Template loader + renderer
@@ -79,16 +79,16 @@
 - `templates/default/` - Default templates per event type
 
 **Acceptance Criteria:**
-- [ ] `TEMPLATE_DIR` env var specifies custom templates
-- [ ] Falls back to built-in formatters if no template
-- [ ] `POST /templates/validate` validates custom template
-- [ ] Hot-reload templates without restart
+- [x] `TEMPLATE_DIR` env var specifies custom templates
+- [x] Falls back to built-in formatters if no template
+- [x] `POST /templates/validate` validates custom template
+- [x] Hot-reload templates without restart
 
 ---
 
 ## Phase 3: "Category Leader" (Priority: Medium)
 
-### 3.1 Multi-Destination Routing
+### 3.1 Multi-Destination Routing ✅ DONE
 **Why:** One webhook → multiple channels/platforms
 **Files:**
 - `routing.py` - Route rules engine
@@ -97,34 +97,34 @@
 - `main.py` - Apply routing before sending
 
 **Acceptance Criteria:**
-- [ ] YAML-based routing rules
-- [ ] Multiple Telegram chats per webhook
-- [ ] Discord webhook support
-- [ ] Conditional routing based on payload fields
+- [x] YAML-based routing rules
+- [x] Multiple Telegram chats per webhook
+- [x] Discord webhook support
+- [x] Conditional routing based on payload fields
 
-### 3.2 GitHub App Auto-Discovery
+### 3.2 GitHub App Auto-Discovery ✅ DONE
 **Why:** No manual webhook setup per repo
 **Files:**
 - `github_app.py` - GitHub App integration
 - `main.py` - Add `/github/install` endpoint
 
 **Acceptance Criteria:**
-- [ ] OAuth flow for GitHub App installation
-- [ ] Auto-registers webhooks on all accessible repos
-- [ ] Handles new repo creation events
-- [ ] Stores installation tokens securely
+- [x] OAuth flow for GitHub App installation
+- [x] Auto-registers webhooks on all accessible repos
+- [x] Handles new repo creation events
+- [x] Stores installation tokens securely
 
-### 3.3 Real-Time Log Stream (WebSocket)
+### 3.3 Real-Time Log Stream (WebSocket) ✅ DONE
 **Why:** Live debugging without tailing logs
 **Files:**
 - `websocket.py` - WebSocket endpoint for log streaming
 - `main.py` - Add `/stream/logs` endpoint
 
 **Acceptance Criteria:**
-- [ ] WebSocket connection streams webhook events
-- [ ] Filter by event type, status, repo
-- [ ] Web UI for viewing stream
-- [ ] Connection survives brief disconnects
+- [x] WebSocket connection streams webhook events
+- [x] Filter by event type, status, repo
+- [x] Web UI for viewing stream
+- [x] Connection survives brief disconnects
 
 ---
 

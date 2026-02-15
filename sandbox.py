@@ -5,27 +5,13 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from formatters import get_formatter
 from models import GenericWebhookPayload
-from tg_client import (
-    format_generic,
-    format_issue_event,
-    format_pr_event,
-    format_push_event,
-    format_release_event,
-    format_workflow_run_event,
-)
+from tg_client import format_generic
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sandbox"])
-
-EVENT_FORMATTERS: dict[str, Any] = {
-    "push": format_push_event,
-    "pull_request": format_pr_event,
-    "issues": format_issue_event,
-    "release": format_release_event,
-    "workflow_run": format_workflow_run_event,
-}
 
 
 def _payload_summary(payload: dict[str, Any], event_type: str) -> dict[str, Any]:
@@ -94,7 +80,7 @@ async def github_sandbox(
             content={"detail": "Payload must be a JSON object"},
         )
 
-    formatter = EVENT_FORMATTERS.get(x_github_event)
+    formatter = get_formatter(x_github_event)
     if not formatter:
         return JSONResponse(
             status_code=200,

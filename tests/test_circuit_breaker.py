@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -104,9 +105,42 @@ def test_circuit_decorator_records_success():
         call_count += 1
         return "success"
     
-    import asyncio
     result = asyncio.run(success_func())
     
     assert result == "success"
     assert call_count == 1
+    assert cb.state == CircuitState.CLOSED
+
+
+def test_half_open_allows_only_one_concurrent_trial():
+    """HALF_OPEN allows only one in-flight trial request by default."""
+    cb = CircuitBreaker(failure_threshold=1, timeout=0.05)
+
+    @cb
+    async def slow_success(started: asyncio.Event, release: asyncio.Event):
+        started.set()
+        await release.wait()
+        return "ok"
+
+    # Trip to OPEN
+    cb.record_failure()
+    assert cb.state == CircuitState.OPEN
+
+    # Wait until transition to HALF_OPEN is possible
+    time.sleep(0.06)
+
+    async def run_race():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        task1 = asyncio.create_task(slow_success(started, release))
+        await started.wait()  # ensure trial slot is occupied
+
+        with pytest.raises(CircuitBreakerOpenError):
+            await slow_success(started, release)
+
+        release.set()
+        assert await task1 == "ok"
+
+    asyncio.run(run_race())
     assert cb.state == CircuitState.CLOSED

@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 import jwt
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from config import settings
 
@@ -37,23 +37,26 @@ def _generate_jwt() -> str:
     return jwt.encode(payload, settings.github_app_private_key, algorithm="RS256")
 
 
-async def _get_installation_token(installation_id: int) -> dict[str, Any]:
+async def _get_installation_token(
+    installation_id: int,
+    http_client: httpx.AsyncClient,
+) -> dict[str, Any]:
     """Exchange an installation ID for an access token."""
     token = _generate_jwt()
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(
-            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await http_client.post(
+        f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 @router.get("/install")
 async def github_install_callback(
+    request: Request,
     installation_id: int = Query(...),
     setup_action: str = Query(default="install"),
 ) -> dict[str, Any]:
@@ -64,7 +67,10 @@ async def github_install_callback(
     return summary info.
     """
     try:
-        token_data = await _get_installation_token(installation_id)
+        token_data = await _get_installation_token(
+            installation_id,
+            request.app.state.http,
+        )
     except httpx.HTTPStatusError as exc:
         logger.error("GitHub token exchange failed: %s", exc.response.text[:300])
         raise HTTPException(status_code=502, detail="Failed to exchange installation token") from exc

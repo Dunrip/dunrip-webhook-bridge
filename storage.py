@@ -135,13 +135,13 @@ class MemoryStorage:
 class RedisStorage:
     def __init__(
         self,
-        redis_url: str,
+        redis_client: Any,
         key_prefix: str,
         idempotency_ttl: int,
     ) -> None:
         if Redis is None:
             raise RedisError("redis package is not installed")
-        self._redis = Redis.from_url(redis_url, decode_responses=True)
+        self._redis = redis_client
         self._key_prefix = key_prefix
         self._idempotency_ttl = idempotency_ttl
 
@@ -150,6 +150,9 @@ class RedisStorage:
 
     def _failed_key(self, failed_id: str) -> str:
         return f"{self._key_prefix}:failed:{failed_id}"
+
+    def _failed_index_key(self) -> str:
+        return f"{self._key_prefix}:failed:index"
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
         if not delivery_id:
@@ -184,8 +187,54 @@ class RedisStorage:
             "created_at_unix": time.time(),
         }
         await self._redis.set(self._failed_key(failed_id), json.dumps(record))
-        await self._redis.lpush(f"{self._key_prefix}:failed:index", failed_id)
+        await self._redis.lpush(self._failed_index_key(), failed_id)
         return failed_id
+
+    async def list_failed_deliveries(
+        self,
+        source: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        failed_ids = await self._redis.lrange(self._failed_index_key(), 0, -1)
+        if not failed_ids:
+            return [], 0
+
+        raw_records = await self._redis.mget([self._failed_key(failed_id) for failed_id in failed_ids])
+
+        records: list[dict[str, Any]] = []
+        for raw in raw_records:
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if source and record.get("source") != source:
+                continue
+            if status and record.get("status") != status:
+                continue
+            records.append(record)
+
+        total = len(records)
+        return records[offset : offset + limit], total
+
+    async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
+        raw = await self._redis.get(self._failed_key(failed_id))
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        record = await self.get_failed_delivery(failed_id)
+        if not record:
+            return
+        record["status"] = status
+        await self._redis.set(self._failed_key(failed_id), json.dumps(record))
 
 
 class FallbackStorage:
@@ -265,16 +314,18 @@ class FallbackStorage:
             await self._fallback.update_failed_delivery_status(failed_id, status)
 
 
-def create_storage_backend() -> Storage:
+def create_storage_backend(redis_client: Any | None = None) -> Storage:
     memory_backend = MemoryStorage(
         idempotency_ttl=settings.idempotency_ttl,
         failed_delivery_ttl=settings.failed_delivery_ttl,
     )
     if settings.storage_backend.lower() == "redis":
         try:
+            if redis_client is None:
+                raise RedisError("Redis client not initialized")
             return FallbackStorage(
                 primary=RedisStorage(
-                    redis_url=settings.redis_url,
+                    redis_client=redis_client,
                     key_prefix=settings.redis_key_prefix,
                     idempotency_ttl=settings.idempotency_ttl,
                 ),

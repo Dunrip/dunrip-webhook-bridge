@@ -15,6 +15,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from security import validate_admin_api_key_headers
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["streaming"])
@@ -102,6 +104,11 @@ async def stream_logs(
     repo: str | None = Query(default=None),
 ) -> None:
     """WebSocket endpoint for live event streaming with optional filters."""
+    if not validate_admin_api_key_headers(ws.headers):
+        logger.warning("WebSocket stream auth failed")
+        await ws.close(code=1008)
+        return
+
     await ws.accept()
     client = _Client(ws=ws, event_type=event_type, status=status, repo=repo)
     await broadcaster.connect(client)

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import settings
+from security import get_client_ip
 
 try:
     from redis import RedisError
@@ -78,15 +79,6 @@ class FallbackRateLimitBackend:
             return await self._fallback.increment(key, window_seconds)
 
 
-def _client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
-
-
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
@@ -105,7 +97,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path not in {"/webhook/github", "/webhook/generic"}:
             return await call_next(request)
 
-        ip = _client_ip(request)
+        ip = get_client_ip(request)
         checks: list[tuple[str, int]] = []
 
         if self._ip_limit_per_minute > 0:

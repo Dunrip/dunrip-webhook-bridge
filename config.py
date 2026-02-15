@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str
     github_webhook_secret: str
     generic_webhook_token: str
+    admin_api_key: str = ""
     log_level: str = "INFO"
 
     # Security / Limits
@@ -29,6 +30,9 @@ class Settings(BaseSettings):
     rate_limit_backend: str = "memory"  # memory | redis
     rate_limit_ip_per_minute: int = 10
     rate_limit_token_per_minute: int = 30
+
+    # Proxy / client IP extraction
+    trusted_proxies: str = ""  # Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For
 
     # Multi-destination routing
     routes_yaml: str = ""  # Path to YAML routing config or inline YAML

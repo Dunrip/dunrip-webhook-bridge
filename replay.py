@@ -3,29 +3,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from formatters import get_formatter
+from security import verify_admin_api_key
 from storage import Storage
-from tg_client import (
-    TelegramSendError,
-    format_generic,
-    format_issue_event,
-    format_pr_event,
-    format_push_event,
-    format_release_event,
-    format_workflow_run_event,
-    send_message,
-)
+from tg_client import TelegramSendError, format_generic, send_message
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["replay"])
-
-EVENT_FORMATTERS: dict[str, Any] = {
-    "push": format_push_event,
-    "pull_request": format_pr_event,
-    "issues": format_issue_event,
-    "release": format_release_event,
-    "workflow_run": format_workflow_run_event,
-}
 
 
 def _get_storage(request: Request) -> Storage:
@@ -45,12 +30,10 @@ async def _replay_delivery(record: dict[str, Any], storage: Storage) -> str:
             payload.get("url"),
         )
     else:
-        formatter = EVENT_FORMATTERS.get(event_type)
+        formatter = get_formatter(event_type)
         if not formatter:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No formatter for event type: {event_type}",
-            )
+            logger.warning("No formatter registered for event type %s", event_type)
+            return "failed"
         message = formatter(payload)
 
     try:
@@ -68,6 +51,7 @@ async def list_deliveries(
     status: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, Any]:
     """List failed deliveries from storage."""
@@ -80,6 +64,7 @@ async def list_deliveries(
 @router.post("/deliveries/{delivery_id}/replay")
 async def replay_delivery(
     delivery_id: str,
+    _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, str]:
     """Retry a specific failed delivery."""
@@ -93,6 +78,7 @@ async def replay_delivery(
 
 @router.post("/deliveries/replay-all")
 async def replay_all(
+    _auth: str = Depends(verify_admin_api_key),
     storage: Storage = Depends(_get_storage),
 ) -> dict[str, int]:
     """Retry all failed deliveries."""

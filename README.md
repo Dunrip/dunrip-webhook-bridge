@@ -4,9 +4,10 @@ A production-ready FastAPI service that forwards GitHub and generic JSON webhook
 
 ## Features
 
-- **Security**: HMAC-SHA256 signature verification, bearer token auth, body size limits
+- **Security**: HMAC-SHA256 signature verification, bearer token auth, admin API key protection, trusted proxy handling, body size limits
 - **Resilience**: Circuit breaker, retry with backoff, idempotency (duplicate detection)
-- **Observability**: Prometheus metrics, structured logging, deep health checks
+- **Observability**: Prometheus metrics, structured logging, deep health checks, WebSocket event stream
+- **Extensibility**: Unified formatter registry (`formatters.py`), optional routing, template support
 - **Docker**: Multi-stage build, docker-compose with optional monitoring stack
 
 ## Supported Events
@@ -65,6 +66,7 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - GENERIC_WEBHOOK_TOKEN=${GENERIC_WEBHOOK_TOKEN}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
     restart: unless-stopped
     deploy:
       resources:
@@ -90,6 +92,38 @@ curl -X POST https://your-domain/webhook/generic \
   -d '{"title": "Deploy", "body": "v1.2.3 deployed", "url": "https://example.com"}'
 ```
 
+## Admin API Protection
+
+Replay/admin endpoints and the WebSocket stream require `ADMIN_API_KEY`.
+
+Protected endpoints:
+- `GET /deliveries`
+- `POST /deliveries/{id}/replay`
+- `POST /deliveries/replay-all`
+- `WS /stream/logs`
+
+Accepted auth headers:
+- `X-API-Key: <ADMIN_API_KEY>`
+- `Authorization: Bearer <ADMIN_API_KEY>`
+
+If `ADMIN_API_KEY` is missing, HTTP admin endpoints return `503` (misconfigured), and WebSocket auth fails.
+
+## Security Notes
+
+### Trusted Proxies and X-Forwarded-For (IP spoofing protection)
+
+`TRUSTED_PROXIES` controls when `X-Forwarded-For` is trusted:
+
+- **Empty `TRUSTED_PROXIES` (default):** ignore `X-Forwarded-For`; use direct client IP only.
+- **Set `TRUSTED_PROXIES`:** trust `X-Forwarded-For` **only** when request source IP matches configured IP/CIDR.
+
+Example:
+```env
+TRUSTED_PROXIES=10.0.0.10,10.0.0.0/24
+```
+
+This behavior is used by rate limiting to reduce spoofing risk.
+
 ## Health Checks
 
 ```bash
@@ -108,8 +142,8 @@ GET /metrics
 The service includes a circuit breaker to prevent hammering Telegram during outages:
 
 - **CLOSED**: Normal operation (default)
-- **OPEN**: After 5 consecutive failures, fast-fail with 502
-- **HALF_OPEN**: After 60 seconds, allows one test request
+- **OPEN**: After `CIRCUIT_BREAKER_THRESHOLD` consecutive failures, fast-fail with 502
+- **HALF_OPEN**: After `CIRCUIT_BREAKER_TIMEOUT` seconds, allows **1 concurrent trial request**
 
 Returns `502 Circuit breaker is OPEN` when tripped.
 
@@ -121,12 +155,26 @@ Returns `502 Circuit breaker is OPEN` when tripped.
 | `TELEGRAM_CHAT_ID` | *required* | Target chat/channel ID |
 | `GITHUB_WEBHOOK_SECRET` | *required* | Secret for GitHub HMAC |
 | `GENERIC_WEBHOOK_TOKEN` | *required* | Bearer token for generic webhooks |
+| `ADMIN_API_KEY` | *required for admin/replay/stream* | API key for replay admin endpoints and `/stream/logs` |
 | `LOG_LEVEL` | INFO | Logging verbosity |
 | `MAX_BODY_SIZE` | 1048576 | Max payload size (bytes) |
-| `TELEGRAM_RETRIES` | 2 | Retry attempts for Telegram API |
 | `IDEMPOTENCY_TTL` | 3600 | Duplicate detection window (seconds) |
+| `FAILED_DELIVERY_TTL` | 604800 | Failed-delivery retention window (seconds) |
+| `TELEGRAM_RETRIES` | 2 | Retry attempts for Telegram API |
 | `CIRCUIT_BREAKER_THRESHOLD` | 5 | Failures before opening circuit |
 | `CIRCUIT_BREAKER_TIMEOUT` | 60 | Seconds before half-open |
+| `STORAGE_BACKEND` | memory | Storage backend (`memory` or `redis`) |
+| `REDIS_URL` | redis://redis:6379/0 | Redis connection string |
+| `REDIS_KEY_PREFIX` | webhook_bridge | Redis key namespace prefix |
+| `RATE_LIMIT_BACKEND` | memory | Rate limit backend (`memory` or `redis`) |
+| `RATE_LIMIT_IP_PER_MINUTE` | 10 | Per-IP requests per minute |
+| `RATE_LIMIT_TOKEN_PER_MINUTE` | 30 | Per-token requests per minute (generic webhook) |
+| `TRUSTED_PROXIES` | empty | Comma-separated trusted proxy IPs/CIDRs for XFF handling |
+| `ROUTES_YAML` | empty | Routing config path or inline YAML |
+| `DISCORD_WEBHOOK_URL` | empty | Discord destination webhook |
+| `SLACK_WEBHOOK_URL` | empty | Slack destination webhook |
+| `GITHUB_APP_ID` | empty | GitHub App ID (enables app endpoints) |
+| `GITHUB_APP_PRIVATE_KEY` | empty | GitHub App private key |
 
 ## Monitoring
 
@@ -148,14 +196,23 @@ pip install -r requirements.txt
 pytest tests/ -v
 ```
 
-42 tests covering all endpoints, auth, formatters, retry logic, circuit breaker, and idempotency.
-
 ## Architecture
 
+Shared clients (Redis + httpx) are initialized once via FastAPI lifespan and closed on shutdown.
+
 ```
-GitHub Webhook → HMAC Verify → Idempotency Check → Format → Circuit Breaker → Telegram API
-                                                     ↓
-Generic Webhook → Token Verify ────────────────────→┘
-                                                     ↓
-                                               Prometheus Metrics
+Incoming Webhooks
+   ├─ /webhook/github  ──> HMAC Verify
+   └─ /webhook/generic ──> Token Verify
+            │
+            ├─> Rate Limit (client IP from TRUSTED_PROXIES/XFF policy)
+            ├─> Idempotency + Failed Delivery Storage (Memory/Redis)
+            ├─> Formatter Registry (formatters.py) / Templates
+            ├─> Circuit Breaker (HALF_OPEN: 1 concurrent trial)
+            ├─> Routing (Telegram / Discord / Slack)
+            └─> Broadcast Event (WebSocket stream, ADMIN_API_KEY protected)
+
+Lifespan-managed shared clients:
+  - app.state.http  (httpx.AsyncClient)
+  - app.state.redis (optional Redis client)
 ```

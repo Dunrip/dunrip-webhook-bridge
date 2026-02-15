@@ -1,7 +1,9 @@
 """Tests for WebSocket streaming."""
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
+import main
 from websocket import EventBroadcaster, _Client
 
 
@@ -136,3 +138,27 @@ class TestEventBroadcaster:
             "payload": {"repository": {"full_name": "a/b"}},
         })
         assert len(ws.sent) == 1  # not incremented
+
+
+def _app_client(monkeypatch):
+    monkeypatch.setattr(main.settings, "github_webhook_secret", "gh-secret")
+    monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
+    monkeypatch.setattr(main.settings, "admin_api_key", "admin-test-key")
+    monkeypatch.setattr(main.settings, "storage_backend", "memory")
+    monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
+    app = main.create_app()
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
+
+def test_stream_logs_requires_auth(monkeypatch):
+    client = _app_client(monkeypatch)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/stream/logs"):
+            pass
+
+
+def test_stream_logs_accepts_x_api_key(monkeypatch):
+    client = _app_client(monkeypatch)
+    with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws:
+        ws.close()

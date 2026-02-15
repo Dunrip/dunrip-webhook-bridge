@@ -1,9 +1,11 @@
 import json
 import logging
 import time
-from collections.abc import Callable
+from contextlib import asynccontextmanager
 from json import JSONDecodeError
 from typing import Any
+
+import httpx
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -11,23 +13,15 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 from circuit_breaker import telegram_circuit
 from config import settings
+from formatters import get_formatter
 from middleware import RateLimitMiddleware, create_rate_limit_backend
 from models import GenericWebhookPayload
 from replay import router as replay_router
 from routing import load_routes, route_event
 from sandbox import router as sandbox_router
 from security import verify_generic_token, verify_github_signature
-from storage import Storage, create_storage_backend
-from tg_client import (
-    TelegramSendError,
-    format_generic,
-    format_issue_event,
-    format_pr_event,
-    format_push_event,
-    format_release_event,
-    format_workflow_run_event,
-    send_message,
-)
+from storage import Redis, RedisError, Storage, create_storage_backend
+from tg_client import TelegramSendError, format_generic, send_message
 from websocket import broadcaster, router as ws_router
 
 logging.basicConfig(
@@ -62,16 +56,46 @@ CIRCUIT_BREAKER_STATE = Counter(
     ["from_state", "to_state"]
 )
 
-EVENT_FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "push": format_push_event,
-    "pull_request": format_pr_event,
-    "issues": format_issue_event,
-    "release": format_release_event,
-    "workflow_run": format_workflow_run_event,
-}
+def _initialize_app_state(app: FastAPI) -> None:
+    if not hasattr(app.state, "http"):
+        app.state.http = httpx.AsyncClient(timeout=10)
+
+    if not hasattr(app.state, "redis"):
+        app.state.redis = None
+        if settings.storage_backend.lower() == "redis":
+            try:
+                if Redis is None:
+                    raise RedisError("redis package is not installed")
+                app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            except RedisError as exc:
+                logger.warning("Failed to initialize Redis client; using memory fallback: %s", exc)
+
+    if not hasattr(app.state, "storage"):
+        app.state.storage = create_storage_backend(redis_client=app.state.redis)
+
+    if not hasattr(app.state, "routes"):
+        app.state.routes = load_routes()
+
 
 def _get_storage(request: Request) -> Storage:
+    _initialize_app_state(request.app)
     return request.app.state.storage
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _initialize_app_state(app)
+
+    try:
+        yield
+    finally:
+        if getattr(app.state, "redis", None) is not None:
+            if hasattr(app.state.redis, "aclose"):
+                await app.state.redis.aclose()
+            else:
+                await app.state.redis.close()
+        if getattr(app.state, "http", None) is not None:
+            await app.state.http.aclose()
 
 
 def create_app() -> FastAPI:
@@ -80,15 +104,14 @@ def create_app() -> FastAPI:
         version="1.3.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
-    app.state.storage = create_storage_backend()
     app.add_middleware(
         RateLimitMiddleware,
         backend=create_rate_limit_backend(),
         ip_limit_per_minute=settings.rate_limit_ip_per_minute,
         token_limit_per_minute=settings.rate_limit_token_per_minute,
     )
-    app.state.routes = load_routes()
     app.include_router(sandbox_router)
     app.include_router(replay_router)
     app.include_router(ws_router)
@@ -161,14 +184,6 @@ def create_app() -> FastAPI:
             x_github_delivery,
         )
 
-        # Idempotency check
-        if await storage.is_duplicate_delivery(x_github_delivery):
-            logger.info("Duplicate delivery %s ignored", x_github_delivery)
-            WEBHOOK_REQUESTS.labels(
-                source="github", event_type=x_github_event, status="duplicate"
-            ).inc()
-            return {"status": "duplicate", "delivery_id": x_github_delivery or "unknown"}
-
         try:
             body = await verify_github_signature(request)
         except HTTPException as exc:
@@ -176,6 +191,17 @@ def create_app() -> FastAPI:
                 source="github", event_type=x_github_event, status="auth_error"
             ).inc()
             raise
+
+        # Idempotency check (after signature verification to prevent poisoning)
+        if await storage.is_duplicate_delivery(x_github_delivery):
+            logger.info("Duplicate delivery %s ignored", x_github_delivery)
+            WEBHOOK_REQUESTS.labels(
+                source="github", event_type=x_github_event, status="duplicate"
+            ).inc()
+            return JSONResponse(
+                status_code=409,
+                content={"status": "duplicate", "delivery_id": x_github_delivery or "unknown"},
+            )
 
         if x_github_event == "ping":
             WEBHOOK_REQUESTS.labels(
@@ -192,7 +218,7 @@ def create_app() -> FastAPI:
             ).inc()
             raise HTTPException(status_code=400, detail="Malformed JSON payload") from exc
 
-        formatter = EVENT_FORMATTERS.get(x_github_event)
+        formatter = get_formatter(x_github_event)
         if not formatter:
             logger.info("Ignoring unsupported GitHub event=%s", x_github_event)
             WEBHOOK_REQUESTS.labels(
@@ -212,7 +238,13 @@ def create_app() -> FastAPI:
         routes = request.app.state.routes
         if routes:
             # Multi-destination routing
-            results = await route_event(routes, message, x_github_event, payload)
+            results = await route_event(
+                routes,
+                message,
+                x_github_event,
+                payload,
+                http_client=request.app.state.http,
+            )
             any_sent = any(r["status"] == "sent" for r in results)
             any_failed = any(r["status"] == "failed" for r in results)
 
@@ -311,7 +343,13 @@ def create_app() -> FastAPI:
 
         routes = request.app.state.routes
         if routes:
-            results = await route_event(routes, message, "generic", payload_dict)
+            results = await route_event(
+                routes,
+                message,
+                "generic",
+                payload_dict,
+                http_client=request.app.state.http,
+            )
             any_sent = any(r["status"] == "sent" for r in results)
             any_failed = any(r["status"] == "failed" for r in results)
 

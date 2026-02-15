@@ -1,6 +1,7 @@
 """Circuit breaker pattern for Telegram API resilience."""
 
 import logging
+import threading
 import time
 from enum import Enum
 from functools import wraps
@@ -31,13 +32,17 @@ class CircuitBreaker:
         self,
         failure_threshold: int | None = None,
         timeout: int | None = None,
+        half_open_max_calls: int = 1,
     ):
         self.failure_threshold = failure_threshold or settings.circuit_breaker_threshold
         self.timeout = timeout or settings.circuit_breaker_timeout
+        self.half_open_max_calls = max(1, half_open_max_calls)
         
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._last_failure_time: float | None = None
+        self._half_open_in_flight = 0
+        self._lock = threading.Lock()
         
     @property
     def state(self) -> CircuitState:
@@ -71,6 +76,7 @@ class CircuitBreaker:
         """Trip the circuit to OPEN."""
         self._transition_to(CircuitState.OPEN)
         self._last_failure_time = time.time()
+        self._half_open_in_flight = 0
         logger.warning(
             "Circuit breaker TRIPPED to OPEN (threshold=%d)",
             self.failure_threshold
@@ -81,55 +87,74 @@ class CircuitBreaker:
         self._transition_to(CircuitState.CLOSED)
         self._failure_count = 0
         self._last_failure_time = None
+        self._half_open_in_flight = 0
         logger.info("Circuit breaker RESET to CLOSED")
         
     def _try_transition_to_half_open(self) -> bool:
-        """Check if we should try half-open state."""
+        """Check if we should try half-open state.
+
+        NOTE: caller must hold self._lock.
+        """
         if self._state != CircuitState.OPEN:
             return False
-            
+
         if self._last_failure_time is None:
             return False
-            
+
         elapsed = time.time() - self._last_failure_time
         if elapsed >= self.timeout:
             self._transition_to(CircuitState.HALF_OPEN)
+            self._half_open_in_flight = 0
             logger.info("Circuit breaker transitioned to HALF_OPEN")
             return True
         return False
-        
+
+    def _acquire_half_open_slot(self) -> bool:
+        """Try to acquire a HALF_OPEN trial slot.
+
+        NOTE: caller must hold self._lock.
+        """
+        if self._half_open_in_flight >= self.half_open_max_calls:
+            return False
+        self._half_open_in_flight += 1
+        return True
+
     def can_execute(self) -> bool:
         """Check if request should be allowed."""
-        if self._state == CircuitState.CLOSED:
-            return True
-            
-        if self._state == CircuitState.OPEN:
-            if self._try_transition_to_half_open():
+        with self._lock:
+            if self._state == CircuitState.CLOSED:
                 return True
-            return False
-            
-        return True  # HALF_OPEN
-        
+
+            if self._state == CircuitState.OPEN:
+                self._try_transition_to_half_open()
+                if self._state != CircuitState.HALF_OPEN:
+                    return False
+
+            # HALF_OPEN: strictly limited trial requests
+            return self._acquire_half_open_slot()
+
     def record_success(self) -> None:
         """Record a successful call."""
-        if self._state == CircuitState.HALF_OPEN:
-            self._reset()
-        else:
-            self._failure_count = max(0, self._failure_count - 1)
-            
+        with self._lock:
+            if self._state == CircuitState.HALF_OPEN:
+                self._reset()
+            else:
+                self._failure_count = max(0, self._failure_count - 1)
+
     def record_failure(self) -> bool:
         """Record a failed call. Returns True if circuit tripped."""
-        self._failure_count += 1
-        
-        if self._state == CircuitState.HALF_OPEN:
-            self._trip()
-            return True
-            
-        if self._failure_count >= self.failure_threshold:
-            self._trip()
-            return True
-            
-        return False
+        with self._lock:
+            self._failure_count += 1
+
+            if self._state == CircuitState.HALF_OPEN:
+                self._trip()
+                return True
+
+            if self._failure_count >= self.failure_threshold:
+                self._trip()
+                return True
+
+            return False
         
     def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
         """Decorator to wrap a function with circuit breaker."""

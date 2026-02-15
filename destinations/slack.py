@@ -58,8 +58,9 @@ def _build_blocks(message: str, event_type: str, payload: dict[str, Any]) -> lis
 class SlackDestination(Destination):
     """Delivers messages to Slack via an incoming webhook URL."""
 
-    def __init__(self, webhook_url: str) -> None:
+    def __init__(self, webhook_url: str, http_client: httpx.AsyncClient | None = None) -> None:
         self._webhook_url = webhook_url
+        self._http_client = http_client
 
     @property
     def name(self) -> str:
@@ -71,9 +72,13 @@ class SlackDestination(Destination):
         body = {"text": plain[:3000], "blocks": blocks}
 
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(self._webhook_url, json=body)
+            if self._http_client is not None:
+                resp = await self._http_client.post(self._webhook_url, json=body)
                 resp.raise_for_status()
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(self._webhook_url, json=body)
+                    resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.error("Slack webhook returned %s: %s", exc.response.status_code, exc.response.text[:200])
             raise DestinationError("slack", f"HTTP {exc.response.status_code}") from exc
