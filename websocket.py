@@ -14,7 +14,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from config import settings
 from observability import audit_log, fingerprint_api_key
-from security import validate_admin_api_key_headers
+from security import get_websocket_client_ip, is_ws_ip_allowed, validate_admin_api_key_headers
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +118,24 @@ async def stream_logs(
     status: str | None = Query(default=None),
     repo: str | None = Query(default=None),
 ) -> None:
-    client_ip = ws.client.host if ws.client else "unknown"
+    client_ip = get_websocket_client_ip(ws)
     provided_key = ws.headers.get("x-api-key")
     actor = fingerprint_api_key(provided_key)
+
+    if not is_ws_ip_allowed(client_ip):
+        audit_log(
+            logger,
+            action="WS /stream/logs",
+            request_id=ws.headers.get("x-request-id", "-"),
+            client_ip=client_ip,
+            auth_result="deny",
+            delivery_id=None,
+            status="ws_allowlist_denied",
+            actor=actor if provided_key else "api-key",
+        )
+        logger.warning("WebSocket stream blocked by IP allowlist")
+        await ws.close(code=1008, reason="ip_allowlist_denied")
+        return
 
     auth_ok = validate_admin_api_key_headers(ws.headers)
     if not auth_ok:

@@ -9,7 +9,7 @@ from storage import MemoryStorage
 from tg_client import TelegramSendError
 
 
-def _client(monkeypatch) -> TestClient:
+def _client(monkeypatch, client_host: str = "testclient") -> TestClient:
     monkeypatch.setattr(main.settings, "github_webhook_secret", "gh-secret")
     monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
     monkeypatch.setattr(main.settings, "admin_api_key", "admin-test-key")
@@ -25,13 +25,16 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "max_replay_attempts", 10)
     monkeypatch.setattr(main.settings, "ws_connects_per_minute", 1000)
     monkeypatch.setattr(main.settings, "ws_max_connections_per_ip", 1000)
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
     from circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
     # TestClient only runs lifespan when used as a context manager; these tests
     # instantiate it directly, so initialize shared app.state dependencies here.
     main._initialize_app_state(app)
-    client = TestClient(app)
+    client = TestClient(app, client=(client_host, 50000))
     client.headers.update({"X-API-Key": "admin-test-key"})
     return client
 
@@ -382,3 +385,36 @@ def test_replay_max_attempts_moves_to_dead_letter(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "dead_letter"
     assert storage.failed_deliveries[ids[0]]["status"] == "dead_letter"
+
+
+def test_deliveries_allowlist_blocks_non_matching_ip(monkeypatch) -> None:
+    client = _client(monkeypatch, client_host="198.51.100.10")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+
+    response = client.get("/deliveries")
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["error"] == "ADMIN_IP_NOT_ALLOWED"
+    assert payload["request_id"]
+
+
+def test_deliveries_allowlist_allows_matching_ip(monkeypatch) -> None:
+    client = _client(monkeypatch, client_host="203.0.113.10")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+
+    response = client.get("/deliveries")
+
+    assert response.status_code == 200
+
+
+def test_deliveries_allowlist_respects_trusted_proxy_xff(monkeypatch) -> None:
+    client = _client(monkeypatch, client_host="198.51.100.10")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "198.51.100.0/24")
+
+    response = client.get("/deliveries", headers={"X-Forwarded-For": "203.0.113.9"})
+
+    assert response.status_code == 200

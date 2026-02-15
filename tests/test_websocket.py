@@ -140,20 +140,23 @@ class TestEventBroadcaster:
         assert len(ws.sent) == 1  # not incremented
 
 
-def _app_client(monkeypatch):
+def _app_client(monkeypatch, client_host: str = "testclient"):
     monkeypatch.setattr(main.settings, "github_webhook_secret", "gh-secret")
     monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
     monkeypatch.setattr(main.settings, "admin_api_key", "admin-test-key")
     monkeypatch.setattr(main.settings, "storage_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_admin_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
     app = main.create_app()
     from websocket import broadcaster
     broadcaster._connect_attempts.clear()
     broadcaster._connections_per_ip.clear()
     broadcaster._clients.clear()
     from fastapi.testclient import TestClient
-    return TestClient(app)
+    return TestClient(app, client=(client_host, 50000))
 
 
 def test_stream_logs_requires_auth(monkeypatch):
@@ -187,3 +190,43 @@ def test_stream_logs_max_connections_per_ip(monkeypatch):
             with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}):
                 pass
         ws1.close()
+
+
+def test_stream_logs_allowlist_blocks_non_matching_ip(monkeypatch):
+    client = _app_client(monkeypatch, client_host="198.51.100.10")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}):
+            pass
+
+
+def test_stream_logs_allowlist_allows_matching_ip(monkeypatch):
+    client = _app_client(monkeypatch, client_host="203.0.113.10")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "")
+
+    with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws:
+        ws.close()
+
+
+def test_stream_logs_allowlist_respects_trusted_proxy_xff(monkeypatch):
+    client = _app_client(monkeypatch, client_host="198.51.100.10")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "trusted_proxies", "198.51.100.0/24")
+
+    with client.websocket_connect(
+        "/stream/logs",
+        headers={"X-API-Key": "admin-test-key", "X-Forwarded-For": "203.0.113.9"},
+    ) as ws:
+        ws.close()
+
+
+def test_stream_logs_allowlist_falls_back_to_admin_allowlist(monkeypatch):
+    client = _app_client(monkeypatch, client_host="203.0.113.10")
+    monkeypatch.setattr(main.settings, "admin_ip_allowlist", "203.0.113.0/24")
+    monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
+
+    with client.websocket_connect("/stream/logs", headers={"X-API-Key": "admin-test-key"}) as ws:
+        ws.close()

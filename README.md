@@ -137,6 +137,38 @@ uvicorn main:app --host 0.0.0.0 --port 8000
   - Max replay attempts: `MAX_REPLAY_ATTEMPTS` (default `10`), then status moves to `dead_letter`
   - Replay operation idempotency via `Idempotency-Key` header
 
+## Network Boundary Controls (v1.2 Track B)
+
+Admin and streaming endpoints support optional CIDR/IP allowlists:
+
+- `ADMIN_IP_ALLOWLIST`: enforced on all `/deliveries*` endpoints
+- `WS_IP_ALLOWLIST`: enforced on `/stream/logs` websocket
+  - If empty, websocket falls back to `ADMIN_IP_ALLOWLIST`
+
+Behavior:
+
+- Empty allowlist = disabled (no IP-based blocking)
+- Configured allowlist = fail-closed (non-matching clients are denied)
+- Client IP extraction is trusted-proxy-aware via `TRUSTED_PROXIES`
+- Admin HTTP denial returns `403` structured JSON with `request_id`
+- WebSocket denial closes with policy-violation code (`1008`)
+
+Examples:
+
+```env
+TRUSTED_PROXIES=10.0.0.0/24
+ADMIN_IP_ALLOWLIST=203.0.113.10,203.0.113.0/24
+WS_IP_ALLOWLIST=198.51.100.0/24
+```
+
+```env
+# Reuse admin allowlist for websocket by leaving WS_IP_ALLOWLIST empty
+ADMIN_IP_ALLOWLIST=203.0.113.0/24
+WS_IP_ALLOWLIST=
+```
+
+Migration notes: see `docs/migration-v1.2.md`.
+
 ## Testing
 
 ```bash
