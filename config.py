@@ -14,10 +14,21 @@ class Settings(BaseSettings):
 
     # Idempotency (TTL in seconds)
     idempotency_ttl: int = 3600  # 1 hour
+    failed_delivery_ttl: int = 604800  # 7 days
+
+    # Storage backend settings
+    storage_backend: str = "memory"  # memory | redis
+    redis_url: str = "redis://redis:6379/0"
+    redis_key_prefix: str = "webhook_bridge"
 
     # Circuit breaker settings
     circuit_breaker_threshold: int = 5  # Failures before opening
     circuit_breaker_timeout: int = 60   # Seconds before half-open
+
+    # Rate limiting settings
+    rate_limit_backend: str = "memory"  # memory | redis
+    rate_limit_ip_per_minute: int = 10
+    rate_limit_token_per_minute: int = 30
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

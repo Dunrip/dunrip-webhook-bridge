@@ -11,8 +11,10 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 from circuit_breaker import telegram_circuit
 from config import settings
+from middleware import RateLimitMiddleware, create_rate_limit_backend
 from models import GenericWebhookPayload
 from security import verify_generic_token, verify_github_signature
+from storage import Storage, create_storage_backend
 from tg_client import (
     TelegramSendError,
     format_generic,
@@ -64,32 +66,8 @@ EVENT_FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "workflow_run": format_workflow_run_event,
 }
 
-# Simple in-memory idempotency store: delivery_id -> timestamp
-_idempotency_store: dict[str, float] = {}
-
-
-def _is_duplicate(delivery_id: str | None) -> bool:
-    """Check if delivery_id was seen recently (within TTL)."""
-    if not delivery_id:
-        return False
-
-    now = time.time()
-    ttl = settings.idempotency_ttl
-
-    # Cleanup old entries occasionally (simple probabilistic cleanup)
-    if len(_idempotency_store) > 1000 and hash(delivery_id) % 10 == 0:
-        cutoff = now - ttl
-        expired = [k for k, v in _idempotency_store.items() if v < cutoff]
-        for k in expired:
-            del _idempotency_store[k]
-
-    if delivery_id in _idempotency_store:
-        age = now - _idempotency_store[delivery_id]
-        if age < ttl:
-            return True
-
-    _idempotency_store[delivery_id] = now
-    return False
+def _get_storage(request: Request) -> Storage:
+    return request.app.state.storage
 
 
 def create_app() -> FastAPI:
@@ -98,6 +76,13 @@ def create_app() -> FastAPI:
         version="1.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
+    )
+    app.state.storage = create_storage_backend()
+    app.add_middleware(
+        RateLimitMiddleware,
+        backend=create_rate_limit_backend(),
+        ip_limit_per_minute=settings.rate_limit_ip_per_minute,
+        token_limit_per_minute=settings.rate_limit_token_per_minute,
     )
 
     @app.get("/metrics", tags=["monitoring"])
@@ -153,6 +138,7 @@ def create_app() -> FastAPI:
         request: Request,
         x_github_event: str = Header(default="ping"),
         x_github_delivery: str | None = Header(default=None),
+        storage: Storage = Depends(_get_storage),
     ) -> dict[str, str]:
         """Receive GitHub webhooks and forward to Telegram."""
         start_time = time.time()
@@ -163,7 +149,7 @@ def create_app() -> FastAPI:
         )
 
         # Idempotency check
-        if _is_duplicate(x_github_delivery):
+        if await storage.is_duplicate_delivery(x_github_delivery):
             logger.info("Duplicate delivery %s ignored", x_github_delivery)
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="duplicate"
@@ -217,6 +203,17 @@ def create_app() -> FastAPI:
             ).inc()
         except TelegramSendError as exc:
             logger.exception("Telegram delivery failed for event=%s", x_github_event)
+            await storage.store_failed_delivery(
+                source="github",
+                event_type=x_github_event,
+                payload=payload,
+                headers={
+                    "x-github-event": x_github_event,
+                    "x-github-delivery": x_github_delivery or "",
+                },
+                error=str(exc),
+                delivery_id=x_github_delivery,
+            )
             TELEGRAM_MESSAGES.labels(status="failed").inc()
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="delivery_failed"
@@ -234,6 +231,7 @@ def create_app() -> FastAPI:
     async def generic_webhook(
         payload: GenericWebhookPayload,
         _token: str = Depends(verify_generic_token),
+        storage: Storage = Depends(_get_storage),
     ) -> dict[str, str]:
         """Receive generic webhooks and forward to Telegram."""
         start_time = time.time()
@@ -247,6 +245,13 @@ def create_app() -> FastAPI:
             ).inc()
         except TelegramSendError as exc:
             logger.exception("Telegram delivery failed for generic webhook")
+            await storage.store_failed_delivery(
+                source="generic",
+                event_type="generic",
+                payload=payload.model_dump(),
+                headers={},
+                error=str(exc),
+            )
             TELEGRAM_MESSAGES.labels(status="failed").inc()
             WEBHOOK_REQUESTS.labels(
                 source="generic", event_type="generic", status="delivery_failed"

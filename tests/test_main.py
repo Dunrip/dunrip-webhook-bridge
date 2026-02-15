@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from storage import MemoryStorage
 from tg_client import TelegramSendError
 
 
@@ -19,8 +20,11 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "generic_webhook_token", "generic-token")
     monkeypatch.setattr(main.settings, "max_body_size", 1024 * 1024)
     monkeypatch.setattr(main.settings, "idempotency_ttl", 3600)
-    # Reset idempotency store and circuit breaker for each test
-    main._idempotency_store.clear()
+    monkeypatch.setattr(main.settings, "failed_delivery_ttl", 604800)
+    monkeypatch.setattr(main.settings, "storage_backend", "memory")
+    monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
+    monkeypatch.setattr(main.settings, "rate_limit_ip_per_minute", 1000)
+    monkeypatch.setattr(main.settings, "rate_limit_token_per_minute", 1000)
     from circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
@@ -329,3 +333,54 @@ def test_generic_send_failure_returns_502(monkeypatch) -> None:
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Failed to deliver message"
+
+
+def test_github_failure_is_stored(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    payload = json.dumps({"repository": {"full_name": "org/repo"}, "commits": []}).encode()
+
+    async def fail_send(_: str) -> None:
+        raise TelegramSendError("boom")
+
+    monkeypatch.setattr(main, "send_message", fail_send)
+
+    response = client.post(
+        "/webhook/github",
+        content=payload,
+        headers={
+            "X-Hub-Signature-256": _sign(payload, "gh-secret"),
+            "X-GitHub-Event": "push",
+            "X-GitHub-Delivery": "delivery-123",
+        },
+    )
+
+    assert response.status_code == 502
+    storage = client.app.state.storage
+    assert isinstance(storage, MemoryStorage)
+    assert len(storage.failed_deliveries) == 1
+    first = next(iter(storage.failed_deliveries.values()))
+    assert first["source"] == "github"
+    assert first["event_type"] == "push"
+    assert first["delivery_id"] == "delivery-123"
+
+
+def test_generic_failure_is_stored(monkeypatch) -> None:
+    client = _client(monkeypatch)
+
+    async def fail_send(_: str) -> None:
+        raise TelegramSendError("boom")
+
+    monkeypatch.setattr(main, "send_message", fail_send)
+    response = client.post(
+        "/webhook/generic",
+        headers={"X-Webhook-Token": "generic-token"},
+        json={"title": "Deploy", "body": "failed"},
+    )
+
+    assert response.status_code == 502
+    storage = client.app.state.storage
+    assert isinstance(storage, MemoryStorage)
+    assert len(storage.failed_deliveries) == 1
+    first = next(iter(storage.failed_deliveries.values()))
+    assert first["source"] == "generic"
+    assert first["event_type"] == "generic"

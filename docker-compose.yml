@@ -14,9 +14,18 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_BODY_SIZE=${MAX_BODY_SIZE:-1048576}
       - IDEMPOTENCY_TTL=${IDEMPOTENCY_TTL:-3600}
+      - FAILED_DELIVERY_TTL=${FAILED_DELIVERY_TTL:-604800}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-memory}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-webhook_bridge}
+      - RATE_LIMIT_BACKEND=${RATE_LIMIT_BACKEND:-memory}
+      - RATE_LIMIT_IP_PER_MINUTE=${RATE_LIMIT_IP_PER_MINUTE:-10}
+      - RATE_LIMIT_TOKEN_PER_MINUTE=${RATE_LIMIT_TOKEN_PER_MINUTE:-30}
       - TELEGRAM_RETRIES=${TELEGRAM_RETRIES:-2}
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-5}
       - CIRCUIT_BREAKER_TIMEOUT=${CIRCUIT_BREAKER_TIMEOUT:-60}
+    depends_on:
+      - redis
     restart: unless-stopped
     # Optional: resource limits
     deploy:
@@ -28,6 +37,16 @@ services:
           cpus: '0.1'
           memory: 128M
     # Optional: connect to monitoring network
+    networks:
+      - webhook-net
+
+  # Optional: Prometheus for metrics collection
+  redis:
+    image: redis:7-alpine
+    container_name: webhook-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
     networks:
       - webhook-net
 
@@ -68,5 +87,6 @@ networks:
     driver: bridge
 
 volumes:
+  redis-data:
   prometheus-data:
   grafana-data:

@@ -1,0 +1,151 @@
+import logging
+import time
+from typing import Protocol
+
+from fastapi import Request
+from fastapi.responses import JSONResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from config import settings
+
+try:
+    from redis import RedisError
+    from redis.asyncio import Redis
+except ModuleNotFoundError:  # pragma: no cover - exercised in no-network envs
+    Redis = None
+
+    class RedisError(Exception):
+        pass
+
+logger = logging.getLogger(__name__)
+
+
+class RateLimitBackend(Protocol):
+    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        ...
+
+
+class MemoryRateLimitBackend:
+    def __init__(self) -> None:
+        self._counters: dict[str, tuple[int, float]] = {}
+
+    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        now = time.time()
+        count, expires_at = self._counters.get(key, (0, now + window_seconds))
+        if now >= expires_at:
+            count = 0
+            expires_at = now + window_seconds
+        count += 1
+        self._counters[key] = (count, expires_at)
+        retry_after = max(1, int(expires_at - now))
+        return count, retry_after
+
+
+class RedisRateLimitBackend:
+    def __init__(self, redis_url: str, key_prefix: str) -> None:
+        if Redis is None:
+            raise RedisError("redis package is not installed")
+        self._redis = Redis.from_url(redis_url, decode_responses=True)
+        self._key_prefix = key_prefix
+
+    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        namespaced_key = f"{self._key_prefix}:rate_limit:{key}"
+        async with self._redis.pipeline(transaction=True) as pipeline:
+            pipeline.incr(namespaced_key)
+            pipeline.expire(namespaced_key, window_seconds, nx=True)
+            pipeline.ttl(namespaced_key)
+            count, _, ttl = await pipeline.execute()
+        retry_after = ttl if isinstance(ttl, int) and ttl > 0 else window_seconds
+        return int(count), retry_after
+
+
+class FallbackRateLimitBackend:
+    def __init__(self, primary: RateLimitBackend, fallback: RateLimitBackend) -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._warned = False
+
+    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        try:
+            return await self._primary.increment(key, window_seconds)
+        except RedisError as exc:
+            if not self._warned:
+                logger.warning(
+                    "Redis rate limit backend unavailable, falling back to memory: %s",
+                    exc,
+                )
+                self._warned = True
+            return await self._fallback.increment(key, window_seconds)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(
+        self,
+        app,
+        backend: RateLimitBackend,
+        ip_limit_per_minute: int,
+        token_limit_per_minute: int,
+    ) -> None:
+        super().__init__(app)
+        self._backend = backend
+        self._ip_limit_per_minute = ip_limit_per_minute
+        self._token_limit_per_minute = token_limit_per_minute
+        self._window_seconds = 60
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if request.url.path not in {"/webhook/github", "/webhook/generic"}:
+            return await call_next(request)
+
+        ip = _client_ip(request)
+        checks: list[tuple[str, int]] = []
+
+        if self._ip_limit_per_minute > 0:
+            checks.append((f"ip:{request.url.path}:{ip}", self._ip_limit_per_minute))
+
+        if (
+            request.url.path == "/webhook/generic"
+            and self._token_limit_per_minute > 0
+            and request.headers.get("x-webhook-token")
+        ):
+            token = request.headers["x-webhook-token"]
+            checks.append((f"token:{request.url.path}:{token}", self._token_limit_per_minute))
+
+        for key, limit in checks:
+            count, retry_after = await self._backend.increment(key, self._window_seconds)
+            if count > limit:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded"},
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+        return await call_next(request)
+
+
+def create_rate_limit_backend() -> RateLimitBackend:
+    memory_backend = MemoryRateLimitBackend()
+    if settings.rate_limit_backend.lower() == "redis":
+        try:
+            return FallbackRateLimitBackend(
+                primary=RedisRateLimitBackend(
+                    redis_url=settings.redis_url,
+                    key_prefix=settings.redis_key_prefix,
+                ),
+                fallback=memory_backend,
+            )
+        except RedisError as exc:
+            logger.warning(
+                "Redis rate limiter requested but unavailable, using memory backend: %s",
+                exc,
+            )
+            return memory_backend
+    return memory_backend
