@@ -1,12 +1,19 @@
 import hashlib
 import hmac
 import logging
+from functools import partial
 
+import anyio
 from fastapi import Header, HTTPException, Request
 
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_signature(body: bytes, secret: str) -> str:
+    """Synchronous HMAC computation (run in thread pool)."""
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
 async def verify_github_signature(request: Request) -> bytes:
@@ -17,11 +24,20 @@ async def verify_github_signature(request: Request) -> bytes:
         raise HTTPException(status_code=401, detail="Missing signature header")
 
     body = await request.body()
-    expected = "sha256=" + hmac.new(
-        settings.github_webhook_secret.encode(),
-        body,
-        hashlib.sha256,
-    ).hexdigest()
+
+    # Body size limit
+    if len(body) > settings.max_body_size:
+        logger.warning(
+            "GitHub webhook body too large: %d bytes (max %d)",
+            len(body),
+            settings.max_body_size,
+        )
+        raise HTTPException(status_code=413, detail="Payload too large")
+
+    # Run HMAC in thread pool to avoid blocking event loop
+    expected = await anyio.to_thread.run_sync(
+        partial(_compute_signature, body, settings.github_webhook_secret)
+    )
 
     if not hmac.compare_digest(expected, signature_header):
         logger.warning("GitHub webhook signature validation failed")

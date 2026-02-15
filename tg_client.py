@@ -21,7 +21,7 @@ class TelegramSendError(RuntimeError):
 
 def escape_md(text: str) -> str:
     """Escape special characters for Telegram MarkdownV2."""
-    return re.sub(r"([_*\[\]()~`>#+\-=|{}.!\\])", r"\\\1", text)
+    return re.sub(r"([_\*\[\]()~`>#+\-=|{}.!\\])", r"\\\1", text)
 
 
 def md_link(text: str, url: str) -> str:
@@ -37,10 +37,13 @@ def _as_dict(value: Any) -> dict[str, Any]:
 async def send_message(
     text: str,
     *,
-    retries: int = 2,
+    retries: int | None = None,
     sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
     """Send a MarkdownV2 message to the configured chat with bounded retries."""
+    if retries is None:
+        retries = settings.telegram_retries
+
     for attempt in range(retries + 1):
         try:
             await bot.send_message(
@@ -135,6 +138,75 @@ def format_issue_event(payload: Mapping[str, Any]) -> str:
     ]
     if isinstance(url, str) and url:
         lines.append(md_link("View issue", url))
+
+    return "\n".join(lines)
+
+
+def format_release_event(payload: Mapping[str, Any]) -> str:
+    """Format a GitHub release event."""
+    action = escape_md(str(payload.get("action", "published")))
+    release = _as_dict(payload.get("release"))
+    repository = _as_dict(payload.get("repository"))
+
+    tag = escape_md(str(release.get("tag_name", "unknown")))
+    name = escape_md(str(release.get("name", tag)))
+    repo = escape_md(str(repository.get("full_name", "unknown")))
+    url = release.get("html_url", "")
+    prerelease = release.get("prerelease", False)
+    draft = release.get("draft", False)
+
+    badge = ""
+    if draft:
+        badge = " ~*DRAFT*~"
+    elif prerelease:
+        badge = " ~*PRE*~"
+
+    lines = [
+        f"*Release* {action}{badge} in `{repo}`",
+        f"*{name}* (`{tag}`)",
+    ]
+
+    if isinstance(url, str) and url:
+        lines.append(md_link("View release", url))
+
+    return "\n".join(lines)
+
+
+def format_workflow_run_event(payload: Mapping[str, Any]) -> str:
+    """Format a GitHub workflow run event."""
+    action = escape_md(str(payload.get("action", "completed")))
+    wf_run = _as_dict(payload.get("workflow_run"))
+    workflow = _as_dict(payload.get("workflow"))
+    repository = _as_dict(payload.get("repository"))
+
+    repo = escape_md(str(repository.get("full_name", "unknown")))
+    wf_name = escape_md(str(workflow.get("name", "Workflow")))
+    conclusion = str(wf_run.get("conclusion", "unknown")).lower()
+    status = str(wf_run.get("status", "unknown"))
+    branch = escape_md(str(wf_run.get("head_branch", "unknown")))
+    url = wf_run.get("html_url", "")
+
+    # Status emoji mapping
+    emoji_map = {
+        "success": "✅",
+        "failure": "❌",
+        "cancelled": "🚫",
+        "skipped": "⏭️",
+    }
+    emoji = emoji_map.get(conclusion, "⚠️")
+
+    lines = [
+        f"{emoji} *Workflow* {action} in `{repo}`",
+        f"*{wf_name}* on `{branch}`",
+    ]
+
+    if conclusion != "unknown":
+        lines.append(f"Result: *{escape_md(conclusion)}*")
+    elif status != "unknown":
+        lines.append(f"Status: {escape_md(status)}")
+
+    if isinstance(url, str) and url:
+        lines.append(md_link("View run", url))
 
     return "\n".join(lines)
 

@@ -8,6 +8,13 @@ class Settings(BaseSettings):
     generic_webhook_token: str
     log_level: str = "INFO"
 
+    # Security / Limits
+    max_body_size: int = 1024 * 1024  # 1MB default
+    telegram_retries: int = 2
+
+    # Idempotency (TTL in seconds)
+    idempotency_ttl: int = 3600  # 1 hour
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

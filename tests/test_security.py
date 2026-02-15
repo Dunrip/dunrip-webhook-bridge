@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 
+import pytest
 from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -30,6 +31,7 @@ def _build_client() -> TestClient:
 
 def test_verify_github_signature_valid(monkeypatch) -> None:
     monkeypatch.setattr(security.settings, "github_webhook_secret", "topsecret")
+    monkeypatch.setattr(security.settings, "max_body_size", 1024 * 1024)
     client = _build_client()
     payload = json.dumps({"ok": True}).encode()
 
@@ -65,6 +67,23 @@ def test_verify_github_signature_invalid(monkeypatch) -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid signature"
+
+
+def test_verify_github_signature_body_too_large(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "github_webhook_secret", "topsecret")
+    monkeypatch.setattr(security.settings, "max_body_size", 100)  # 100 bytes limit
+    client = _build_client()
+
+    payload = b"x" * 200  # Exceeds limit
+
+    response = client.post(
+        "/github",
+        content=payload,
+        headers={"X-Hub-Signature-256": _sign(payload, "topsecret")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Payload too large"
 
 
 def test_verify_generic_token_valid(monkeypatch) -> None:
