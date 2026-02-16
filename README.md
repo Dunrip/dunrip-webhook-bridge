@@ -108,6 +108,22 @@ Checks performed:
   - Cause: no admin key configuration found.
   - Fix: set `ADMIN_API_KEYS` (preferred) or legacy `ADMIN_API_KEY` and restart.
 
+- **Confusing admin auth when both legacy/scoped keys exist**
+  - Cause: `ADMIN_API_KEYS`, `ADMIN_API_KEYS_ACTIVE`, and `ADMIN_API_KEYS_PREVIOUS` take precedence over `ADMIN_API_KEY`.
+  - Fix: prefer scoped keys; remove stale `ADMIN_API_KEY` to avoid confusion.
+
+- **Startup crash or validation error from numeric env vars**
+  - Cause: numeric keys set to empty strings (for example `ADMIN_KEY_ROTATION_GRACE_SECONDS=`).
+  - Fix: remove empty numeric lines or set explicit values. Empty values now fall back to defaults, but explicit values are safer.
+
+- **Smoke test fails to load env from another cwd**
+  - Cause: running `scripts/smoke-test.sh` outside project root.
+  - Fix: script now resolves `.env` from project root automatically. Override with `ENV_FILE=/path/to/.env` if needed.
+
+- **Need quick setup diagnostics**
+  - Run: `make doctor`
+  - It validates `.env`, key precedence, numeric pitfalls, and compose env mapping.
+
 ---
 
 ## Useful commands
@@ -117,6 +133,7 @@ make setup   # bootstrap .env and validate required vars
 make wizard  # interactive env setup
 make up      # docker compose up -d
 make smoke   # smoke test running service
+make doctor  # diagnose env/compose setup issues
 make down    # docker compose down
 ```
 

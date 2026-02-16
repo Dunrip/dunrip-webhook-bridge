@@ -1,4 +1,4 @@
-.PHONY: setup wizard up smoke down
+.PHONY: setup wizard up smoke doctor down
 
 setup:
 	./scripts/bootstrap.sh
@@ -11,6 +11,9 @@ up:
 
 smoke:
 	./scripts/smoke-test.sh
+
+doctor:
+	./scripts/doctor.sh
 
 down:
 	docker compose down

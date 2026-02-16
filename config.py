@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -64,6 +65,16 @@ class Settings(BaseSettings):
     # GitHub App
     github_app_id: str = ""
     github_app_private_key: str = ""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _empty_string_to_default_for_ints(cls, value, info):
+        if value != "":
+            return value
+        field = cls.model_fields.get(info.field_name)
+        if field is None or field.annotation is not int:
+            return value
+        return field.default
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

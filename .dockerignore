@@ -1,0 +1,27 @@
+# Git metadata
+.git
+.gitignore
+.github
+
+# Python cache / virtualenv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Local tooling / editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Test artifacts
+.coverage
+htmlcov/

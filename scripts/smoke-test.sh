@@ -1,20 +1,27 @@
 #!/bin/sh
 set -eu
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
-ENV_FILE=".env"
-
-if [ -f "$ENV_FILE" ]; then
-  # shellcheck disable=SC1090
-  set -a
-  . "$ENV_FILE"
-  set +a
-fi
-
 fail() {
   echo "❌ $1" >&2
   exit 1
 }
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
+
+case "$ENV_FILE" in
+  /*) ;;
+  *) ENV_FILE="$PROJECT_ROOT/$ENV_FILE" ;;
+esac
+
+[ -f "$ENV_FILE" ] || fail "Environment file not found: $ENV_FILE. Set ENV_FILE=/path/to/.env if needed."
+
+# shellcheck disable=SC1090
+set -a
+. "$ENV_FILE"
+set +a
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
