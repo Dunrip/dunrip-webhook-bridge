@@ -46,6 +46,45 @@ Tip: `make wizard` prints these values again after setup.
 
 ---
 
+## Required environment variables (what they are + how to get them)
+
+Use this as a quick reference when filling `.env`.
+
+- `TELEGRAM_BOT_TOKEN`
+  - What it is: your Telegram bot API token.
+  - How to get it: create a bot with [@BotFather](https://t.me/BotFather), then copy the token.
+
+- `TELEGRAM_CHAT_ID`
+  - What it is: target chat/group/channel ID where notifications are sent.
+  - How to get it:
+    1. Send a message to your bot.
+    2. Open `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates`
+    3. Read `chat.id` from response.
+
+- `GITHUB_WEBHOOK_SECRET`
+  - What it is: shared secret for GitHub webhook signature verification.
+  - How to get it: generate your own random secret (example below), then paste the same value in both `.env` and GitHub Webhook "Secret" field.
+
+- `GENERIC_WEBHOOK_TOKEN`
+  - What it is: token for `POST /webhook/generic` (custom/non-GitHub senders).
+  - How to get it: generate your own random secret. Keep it random even if you don’t use generic webhooks yet.
+
+- Admin auth (choose one approach)
+  - Preferred (scoped):
+    - `ADMIN_API_KEYS` (or rotation pair `ADMIN_API_KEYS_ACTIVE` / `ADMIN_API_KEYS_PREVIOUS`)
+    - Format: `key1:read,key2:replay,key3:admin`
+  - Legacy (simple):
+    - `ADMIN_API_KEY`
+  - Purpose: protects admin/replay endpoints and `/stream/logs`.
+
+Generate a strong secret quickly:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+---
+
 ## Render Deployment (recommended)
 
 Use the included blueprint:
