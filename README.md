@@ -22,14 +22,35 @@ Production-ready FastAPI service that receives GitHub (and generic) webhooks and
 
 ## Sample Telegram Output
 
+### Before
+
 ```text
-🚀 push in dunrip/webhook-bridge
-branch: main
-commits: 3
-by: @octocat
+*Push* to `dunrip/webhook-bridge` by *octocat*
+Branch: `main`
+  `a1b2c3d` fix lint
+[View diff](https://github.com/...)
 ```
 
-> Note: Replace with real screenshot/output assets when available.
+### After (`MESSAGE_VERBOSITY=compact`, default)
+
+```text
+🚀 *Push* • `dunrip/webhook-bridge`
+By: @octocat
+Branch: main
+Commits: 3
+🔗 [View diff](https://github.com/...)
+```
+
+### After (`MESSAGE_VERBOSITY=detailed`)
+
+```text
+🚀 *Push* • `dunrip/webhook-bridge`
+By: @octocat
+Branch: main
+Commits: 3
+• a1b2c3d fix lint
+🔗 [View diff](https://github.com/...)
+```
 
 ## Vercel Deployment
 
@@ -96,6 +117,7 @@ You can configure these via `make wizard`.
 - `TELEGRAM_CHAT_ID` — target chat/group/channel ID
 - `GITHUB_WEBHOOK_SECRET` — shared secret for GitHub signature verification
 - `GENERIC_WEBHOOK_TOKEN` — token for `/webhook/generic`
+- `MESSAGE_VERBOSITY` — message detail level: `compact` (default) or `detailed`
 - Admin auth (choose one):
   - Preferred: `ADMIN_API_KEYS` (supports either scoped CSV like `key1:read,key2:replay,key3:admin` or a single bare key like `my-admin-key`)
   - Legacy: `ADMIN_API_KEY` (equivalent to one bare admin key)
