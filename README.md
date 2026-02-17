@@ -1,6 +1,32 @@
 # Dunrip Webhook Bridge
 
+[![CI](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/ci.yml)
+[![Dependency Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml)
+[![Secrets Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Dunrip/dunrip-webhook-bridge?display_name=tag)](https://github.com/Dunrip/dunrip-webhook-bridge/releases/latest)
+
+> **Quickstart (3 commands)**
+>
+> ```bash
+> git clone https://github.com/Dunrip/dunrip-webhook-bridge.git
+> cd dunrip-webhook-bridge
+> make first-run
+> ```
+
 Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
+
+---
+
+## Sample Telegram Output
+
+```text
+🚀 push in dunrip/webhook-bridge
+branch: main
+commits: 3
+by: @octocat
+```
+
+> Note: Replace with real screenshot/output assets when available.
 
 ---
 
