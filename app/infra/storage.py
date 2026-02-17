@@ -73,6 +73,21 @@ class Storage(Protocol):
         """Apply partial field updates to a failed delivery record."""
         ...
 
+    async def upsert_delivery_ledger(
+        self,
+        provider: str,
+        inbound_delivery_id: str,
+        payload_hash: str,
+        status: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Create or update delivery ledger metadata and append transition."""
+        ...
+
+    async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
+        """Get delivery ledger metadata by provider and inbound delivery id."""
+        ...
+
 
 class MemoryStorage:
     """In-memory storage backend for local/dev/test usage."""
@@ -89,6 +104,7 @@ class MemoryStorage:
         self._idempotency_store: dict[str, float] = {}
         self._replay_operation_store: dict[str, float] = {}
         self.failed_deliveries: dict[str, dict[str, Any]] = {}
+        self.delivery_ledger: dict[str, dict[str, Any]] = {}
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
         """Check and record delivery IDs for idempotency."""
@@ -193,6 +209,36 @@ class MemoryStorage:
         record = self.failed_deliveries.get(failed_id)
         if record:
             record.update(dict(updates))
+
+    async def upsert_delivery_ledger(
+        self,
+        provider: str,
+        inbound_delivery_id: str,
+        payload_hash: str,
+        status: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        key = f"{provider}:{inbound_delivery_id}"
+        now = time.time()
+        existing = self.delivery_ledger.get(key)
+        if not existing:
+            existing = {
+                "provider": provider,
+                "inbound_delivery_id": inbound_delivery_id,
+                "payload_hash": payload_hash,
+                "first_seen": now,
+                "status": status,
+                "status_transitions": [],
+            }
+            self.delivery_ledger[key] = existing
+        existing["status"] = status
+        if reason:
+            existing["reason"] = reason
+        existing["status_transitions"].append({"status": status, "at": now, "reason": reason})
+        return existing
+
+    async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
+        return self.delivery_ledger.get(f"{provider}:{inbound_delivery_id}")
 
 
 class RedisStorage:
@@ -340,6 +386,44 @@ class RedisStorage:
         record.update(dict(updates))
         await self._redis.set(self._failed_key(failed_id), json.dumps(record))
 
+    def _ledger_key(self, provider: str, inbound_delivery_id: str) -> str:
+        return f"{self._key_prefix}:ledger:{provider}:{inbound_delivery_id}"
+
+    async def upsert_delivery_ledger(
+        self,
+        provider: str,
+        inbound_delivery_id: str,
+        payload_hash: str,
+        status: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        key = self._ledger_key(provider, inbound_delivery_id)
+        existing_raw = await self._redis.get(key)
+        now = time.time()
+        if existing_raw:
+            existing = json.loads(existing_raw)
+        else:
+            existing = {
+                "provider": provider,
+                "inbound_delivery_id": inbound_delivery_id,
+                "payload_hash": payload_hash,
+                "first_seen": now,
+                "status_transitions": [],
+            }
+        existing["status"] = status
+        existing["payload_hash"] = payload_hash
+        if reason:
+            existing["reason"] = reason
+        existing.setdefault("status_transitions", []).append({"status": status, "at": now, "reason": reason})
+        await self._redis.set(key, json.dumps(existing))
+        return existing
+
+    async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
+        raw = await self._redis.get(self._ledger_key(provider, inbound_delivery_id))
+        if not raw:
+            return None
+        return json.loads(raw)
+
 
 class FallbackStorage:
     """Storage wrapper that falls back to memory when primary backend fails."""
@@ -443,6 +527,25 @@ class FallbackStorage:
             await self._primary.update_failed_delivery(failed_id, updates)
         except RedisError:
             await self._fallback.update_failed_delivery(failed_id, updates)
+
+    async def upsert_delivery_ledger(
+        self,
+        provider: str,
+        inbound_delivery_id: str,
+        payload_hash: str,
+        status: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return await self._primary.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
+        except RedisError:
+            return await self._fallback.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
+
+    async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
+        try:
+            return await self._primary.get_delivery_ledger(provider, inbound_delivery_id)
+        except RedisError:
+            return await self._fallback.get_delivery_ledger(provider, inbound_delivery_id)
 
 
 def create_storage_backend(redis_client: Any | None = None) -> Storage:

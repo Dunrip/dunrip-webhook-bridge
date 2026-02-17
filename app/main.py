@@ -29,6 +29,7 @@ from app.services.routing import load_routes, route_event
 from app.api.sandbox import router as sandbox_router
 from app.core.security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
 from app.infra.storage import Redis, RedisError, Storage, create_storage_backend
+from app.services.reliability import payload_hash
 from app.services.tg_client import TelegramSendError, format_generic, send_message
 from app.api.websocket import broadcaster, router as ws_router
 
@@ -68,6 +69,30 @@ WEBHOOK_LATENCY = _get_or_create_histogram(
     "Webhook request latency",
     ["source", "event_type"],
     buckets=[.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0]
+)
+
+ENQUEUE_LATENCY = _get_or_create_histogram(
+    "webhook_enqueue_duration_seconds",
+    "Time spent validating and enqueueing webhook payloads",
+    ["source"],
+)
+
+PROCESSING_LATENCY = _get_or_create_histogram(
+    "webhook_processing_duration_seconds",
+    "Time spent processing webhook deliveries",
+    ["source", "event_type"],
+)
+
+RETRY_TOTAL = _get_or_create_counter(
+    "webhook_retries_total",
+    "Retry attempts by classification",
+    ["classification"],
+)
+
+DLQ_GROWTH_TOTAL = _get_or_create_counter(
+    "webhook_dlq_growth_total",
+    "Dead-letter growth by reason",
+    ["reason"],
 )
 
 TELEGRAM_MESSAGES = _get_or_create_counter(
@@ -268,18 +293,31 @@ def create_app() -> FastAPI:
             ).inc()
             raise
 
+        request_start = time.time()
+        body_hash = payload_hash(body)
+        if x_github_delivery:
+            existing = await storage.get_delivery_ledger("github", x_github_delivery)
+            if existing and existing.get("payload_hash") != body_hash:
+                WEBHOOK_REQUESTS.labels(source="github", event_type=x_github_event, status="replay_rejected").inc()
+                return _error_response(request, 409, "replay_mismatch", "Delivery id already seen with different payload hash")
+            await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "received")
+
         # Idempotency check (after signature verification to prevent poisoning)
         if await storage.is_duplicate_delivery(x_github_delivery):
             logger.warning("webhook_duplicate source=github event_type=%s delivery_id=%s", x_github_event, x_github_delivery)
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="duplicate"
             ).inc()
+            if x_github_delivery:
+                await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "duplicate")
             return _error_response(
                 request,
                 409,
                 "duplicate_delivery",
                 f"Duplicate delivery: {x_github_delivery or 'unknown'}",
             )
+
+        ENQUEUE_LATENCY.labels(source="github").observe(time.time() - request_start)
 
         if x_github_event == "ping":
             WEBHOOK_REQUESTS.labels(
@@ -328,8 +366,13 @@ def create_app() -> FastAPI:
 
             if any_sent:
                 TELEGRAM_MESSAGES.labels(status="success").inc()
+                if x_github_delivery:
+                    await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "delivered")
             if any_failed:
                 TELEGRAM_MESSAGES.labels(status="failed").inc()
+                if x_github_delivery:
+                    await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "failed", "partial_delivery_failure")
+                DLQ_GROWTH_TOTAL.labels(reason="partial_delivery_failure").inc()
                 await storage.store_failed_delivery(
                     source="github",
                     event_type=x_github_event,
@@ -350,6 +393,7 @@ def create_app() -> FastAPI:
             WEBHOOK_LATENCY.labels(
                 source="github", event_type=x_github_event
             ).observe(duration)
+            PROCESSING_LATENCY.labels(source="github", event_type=x_github_event).observe(duration)
             logger.info(
                 "webhook_delivery source=github event_type=%s delivery_id=%s status=%s duration_ms=%.2f routed=%d",
                 x_github_event,
@@ -378,6 +422,8 @@ def create_app() -> FastAPI:
         try:
             await send_message(message)
             TELEGRAM_MESSAGES.labels(status="success").inc()
+            if x_github_delivery:
+                await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "delivered")
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="success"
             ).inc()
@@ -394,15 +440,21 @@ def create_app() -> FastAPI:
                 error=str(exc),
                 delivery_id=x_github_delivery,
             )
+            DLQ_GROWTH_TOTAL.labels(reason="delivery_failed").inc()
+            RETRY_TOTAL.labels(classification="network").inc()
+            if x_github_delivery:
+                await storage.upsert_delivery_ledger("github", x_github_delivery, body_hash, "failed", "delivery_failed")
             TELEGRAM_MESSAGES.labels(status="failed").inc()
             WEBHOOK_REQUESTS.labels(
                 source="github", event_type=x_github_event, status="delivery_failed"
             ).inc()
             raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502) from exc
         finally:
+            duration = time.time() - start_time
             WEBHOOK_LATENCY.labels(
                 source="github", event_type=x_github_event
-            ).observe(time.time() - start_time)
+            ).observe(duration)
+            PROCESSING_LATENCY.labels(source="github", event_type=x_github_event).observe(duration)
 
         # Broadcast to WebSocket clients
         await broadcaster.broadcast({
@@ -424,9 +476,14 @@ def create_app() -> FastAPI:
     ) -> dict[str, str]:
         """Receive generic webhooks and forward to Telegram."""
         start_time = time.time()
+        request_start = time.time()
         logger.info("webhook_received source=generic event_type=generic title=%s", payload.title)
         message = format_generic(payload.title, payload.body, payload.url)
         payload_dict = payload.model_dump()
+        generic_delivery_id = _request_id(request)
+        generic_hash = payload_hash(payload_dict)
+        await storage.upsert_delivery_ledger("generic", generic_delivery_id, generic_hash, "received")
+        ENQUEUE_LATENCY.labels(source="generic").observe(time.time() - request_start)
 
         routes = request.app.state.routes
         if routes:
@@ -442,8 +499,11 @@ def create_app() -> FastAPI:
 
             if any_sent:
                 TELEGRAM_MESSAGES.labels(status="success").inc()
+                await storage.upsert_delivery_ledger("generic", generic_delivery_id, generic_hash, "delivered")
             if any_failed:
                 TELEGRAM_MESSAGES.labels(status="failed").inc()
+                await storage.upsert_delivery_ledger("generic", generic_delivery_id, generic_hash, "failed", "partial_delivery_failure")
+                DLQ_GROWTH_TOTAL.labels(reason="partial_delivery_failure").inc()
                 await storage.store_failed_delivery(
                     source="generic", event_type="generic",
                     payload=payload_dict, headers={},
@@ -454,6 +514,7 @@ def create_app() -> FastAPI:
             duration = time.time() - start_time
             WEBHOOK_REQUESTS.labels(source="generic", event_type="generic", status=status).inc()
             WEBHOOK_LATENCY.labels(source="generic", event_type="generic").observe(duration)
+            PROCESSING_LATENCY.labels(source="generic", event_type="generic").observe(duration)
             logger.info(
                 "webhook_delivery source=generic event_type=generic status=%s duration_ms=%.2f routed=%d",
                 status,
@@ -475,6 +536,7 @@ def create_app() -> FastAPI:
         try:
             await send_message(message)
             TELEGRAM_MESSAGES.labels(status="success").inc()
+            await storage.upsert_delivery_ledger("generic", generic_delivery_id, generic_hash, "delivered")
             WEBHOOK_REQUESTS.labels(
                 source="generic", event_type="generic", status="success"
             ).inc()
@@ -487,15 +549,20 @@ def create_app() -> FastAPI:
                 headers={},
                 error=str(exc),
             )
+            DLQ_GROWTH_TOTAL.labels(reason="delivery_failed").inc()
+            RETRY_TOTAL.labels(classification="network").inc()
+            await storage.upsert_delivery_ledger("generic", generic_delivery_id, generic_hash, "failed", "delivery_failed")
             TELEGRAM_MESSAGES.labels(status="failed").inc()
             WEBHOOK_REQUESTS.labels(
                 source="generic", event_type="generic", status="delivery_failed"
             ).inc()
             raise CircuitBreakerError("Failed to deliver message", error_code="delivery_failed", status_code=502) from exc
         finally:
+            duration = time.time() - start_time
             WEBHOOK_LATENCY.labels(
                 source="generic", event_type="generic"
-            ).observe(time.time() - start_time)
+            ).observe(duration)
+            PROCESSING_LATENCY.labels(source="generic", event_type="generic").observe(duration)
 
         await broadcaster.broadcast({
             "source": "generic", "event_type": "generic",

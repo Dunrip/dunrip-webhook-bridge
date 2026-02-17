@@ -447,3 +447,15 @@ def test_deliveries_allowlist_respects_trusted_proxy_xff(monkeypatch) -> None:
     response = client.get("/deliveries", headers={"X-Forwarded-For": "203.0.113.9"})
 
     assert response.status_code == 200
+
+def test_replay_safety_blocks_already_delivered_ledger(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    import asyncio
+    asyncio.run(storage.upsert_delivery_ledger("github", "gh-del-1", "hash-x", "delivered"))
+
+    response = client.post(f"/deliveries/{ids[0]}/replay")
+    assert response.status_code == 409
+    assert response.json()["error"] == "replay_already_delivered"

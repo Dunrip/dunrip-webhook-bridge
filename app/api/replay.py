@@ -104,6 +104,11 @@ async def replay_delivery(delivery_id: str, request: Request, override: bool = Q
     record = await storage.get_failed_delivery(delivery_id)
     if not record:
         raise ValidationError("Delivery not found", error_code="delivery_not_found", status_code=404)
+    provider = record.get("source", "generic")
+    inbound_delivery_id = record.get("delivery_id") or record["id"]
+    ledger = await storage.get_delivery_ledger(provider, inbound_delivery_id)
+    if ledger and ledger.get("status") == "delivered" and not override:
+        raise ValidationError("Replay blocked: delivery already marked delivered in ledger", error_code="replay_already_delivered", status_code=409)
     new_status = await _replay_delivery(record, storage, override=override)
     audit_log(logger, action="POST /deliveries/{id}/replay", request_id=getattr(request.state, "request_id", "-"), client_ip=get_client_ip(request), auth_result="allow", status=new_status, actor_key_id=_actor_key_id_from_request(request), delivery_id=delivery_id)
     return {"status": new_status, "delivery_id": delivery_id}
