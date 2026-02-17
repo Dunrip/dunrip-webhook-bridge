@@ -46,6 +46,38 @@ Baseline alert recommendations for Dunrip Webhook Bridge.
 - **Severity:** warning
 - **Action:** check downstream latency (Telegram, Redis), host resource pressure.
 
+### `WebhookEnqueueP95High`
+- **Expr:**
+  ```promql
+  histogram_quantile(0.95, sum(rate(webhook_enqueue_duration_seconds_bucket[5m])) by (le, source)) > 0.25
+  ```
+- **For:** `10m`
+- **Severity:** warning
+- **Action:** validate ingest path speed, Redis/network latency, signature verification overhead.
+
+### `WebhookProcessingP95High`
+- **Expr:**
+  ```promql
+  histogram_quantile(0.95, sum(rate(webhook_processing_duration_seconds_bucket[5m])) by (le, source, event_type)) > 3
+  ```
+- **For:** `10m`
+- **Severity:** warning
+- **Action:** inspect destination slowness and worker throughput.
+
+## Retry / DLQ Signals
+
+### `WebhookRetrySpike`
+- **Expr:** `sum(rate(webhook_retries_total[5m])) > 1`
+- **For:** `10m`
+- **Severity:** warning
+- **Action:** inspect retry classifications and upstream/downstream health.
+
+### `WebhookDLQGrowth`
+- **Expr:** `sum(increase(webhook_dlq_growth_total[15m])) > 0`
+- **For:** `15m`
+- **Severity:** warning
+- **Action:** triage failure reasons, execute targeted replay, and inspect circuit breaker behavior.
+
 ## Operational Notes
 
 - Route critical alerts to on-call (PagerDuty/Telegram).

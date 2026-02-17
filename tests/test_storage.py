@@ -48,11 +48,45 @@ def test_memory_storage_replay_operation_idempotency() -> None:
     assert second is True
 
 
+def test_memory_storage_delivery_ledger_metadata() -> None:
+    storage = MemoryStorage(idempotency_ttl=3600)
+
+    asyncio.run(storage.upsert_delivery_ledger("github", "d-1", "hash-a", "received"))
+    entry = asyncio.run(storage.upsert_delivery_ledger("github", "d-1", "hash-a", "delivered"))
+
+    assert entry["provider"] == "github"
+    assert entry["inbound_delivery_id"] == "d-1"
+    assert entry["payload_hash"] == "hash-a"
+    assert entry["first_seen"]
+    assert len(entry["status_transitions"]) == 2
+
+
 class _FailingStorage:
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
         raise RedisError("down")
 
     async def store_failed_delivery(self, **kwargs) -> str:
+        raise RedisError("down")
+
+    async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
+        raise RedisError("down")
+
+    async def list_failed_deliveries(self, source=None, status=None, limit=20, offset=0):
+        raise RedisError("down")
+
+    async def get_failed_delivery(self, failed_id: str):
+        raise RedisError("down")
+
+    async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
+        raise RedisError("down")
+
+    async def update_failed_delivery(self, failed_id: str, updates) -> None:
+        raise RedisError("down")
+
+    async def upsert_delivery_ledger(self, provider: str, inbound_delivery_id: str, payload_hash: str, status: str, reason=None):
+        raise RedisError("down")
+
+    async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str):
         raise RedisError("down")
 
 
