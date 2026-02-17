@@ -22,6 +22,13 @@ Examples:
 - [ ] `.env.example` updated for new config vars
 - [ ] Migration notes added when behavior/config changed
 
+## Mandatory security checks
+
+- [ ] `Security - Dependency Scan` workflow is green for commit/tag to release
+- [ ] `Security - Secrets Scan` workflow is green for commit/tag to release
+- [ ] No unresolved Critical/High vulnerabilities without explicit risk acceptance
+- [ ] Security remediation SLA impact reviewed against `SECURITY.md`
+
 ## Release prep
 
 - [ ] Choose next SemVer tag
@@ -43,3 +50,10 @@ Examples:
 - [ ] Monitor logs/alerts for first 30–60 minutes
 - [ ] Confirm error-rate and latency panels stay within baseline in Grafana
 - [ ] Open follow-up issues for deferred items
+
+## Release security signoff
+
+- Security reviewer: __________________
+- Date (UTC): __________________
+- Decision: [ ] Approved  [ ] Blocked
+- Notes / accepted risks / expiry (if any):

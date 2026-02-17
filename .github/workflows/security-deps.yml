@@ -6,9 +6,13 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   pip-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -18,6 +22,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install scanner
         run: |
@@ -25,4 +30,12 @@ jobs:
           pip install pip-audit
 
       - name: Run pip-audit (fail on vulnerabilities)
+        id: pip_audit
         run: pip-audit -r requirements.txt
+
+      - name: Security scan summary
+        if: always()
+        run: |
+          echo "## Dependency Scan" >> $GITHUB_STEP_SUMMARY
+          echo "- Result: ${{ steps.pip_audit.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Policy: build fails on vulnerabilities" >> $GITHUB_STEP_SUMMARY
