@@ -54,7 +54,7 @@ jobs:
           output: both
 
       - name: Add coverage to PR comment
-        if: matrix.python-version == '3.11' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+        if: matrix.python-version == '3.11' && github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: code-coverage-results.md
