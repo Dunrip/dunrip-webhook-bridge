@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from middleware import MemoryRateLimitBackend, RateLimitMiddleware
+from app.infra.middleware import MemoryRateLimitBackend, RateLimitMiddleware
 
 
 def _build_client(ip_limit: int = 10, token_limit: int = 30, admin_limit: int = 20) -> TestClient:

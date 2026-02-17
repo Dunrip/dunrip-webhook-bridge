@@ -5,9 +5,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import main
-from storage import MemoryStorage
-from tg_client import TelegramSendError
+import app.main as main
+from app.infra.storage import MemoryStorage
+from app.services.tg_client import TelegramSendError
 
 
 def _sign(payload: bytes, secret: str) -> str:
@@ -30,7 +30,7 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "ws_max_connections_per_ip", 1000)
     monkeypatch.setattr(main.settings, "replay_cooldown_seconds", 30)
     monkeypatch.setattr(main.settings, "max_replay_attempts", 10)
-    from circuit_breaker import telegram_circuit
+    from app.infra.circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
     return TestClient(app)

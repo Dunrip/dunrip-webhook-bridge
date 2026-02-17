@@ -1,6 +1,6 @@
 import asyncio
 
-from storage import FallbackStorage, MemoryStorage, RedisError
+from app.infra.storage import FallbackStorage, MemoryStorage, RedisError
 
 
 def test_memory_storage_idempotency() -> None:

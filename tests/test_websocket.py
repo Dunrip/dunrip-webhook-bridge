@@ -3,8 +3,8 @@
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-import main
-from websocket import EventBroadcaster, _Client
+import app.main as main
+from app.api.websocket import EventBroadcaster, _Client
 
 
 class FakeWebSocket:
@@ -151,7 +151,7 @@ def _app_client(monkeypatch, client_host: str = "testclient"):
     monkeypatch.setattr(main.settings, "admin_ip_allowlist", "")
     monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
     app = main.create_app()
-    from websocket import broadcaster
+    from app.api.websocket import broadcaster
     broadcaster._connect_attempts.clear()
     broadcaster._connections_per_ip.clear()
     broadcaster._clients.clear()

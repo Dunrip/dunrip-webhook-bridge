@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from telegram.error import NetworkError, RetryAfter
 
-import tg_client
+import app.services.tg_client as tg_client
 
 
 def test_escape_md() -> None:

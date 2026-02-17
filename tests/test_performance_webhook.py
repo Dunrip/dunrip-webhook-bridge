@@ -6,7 +6,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import main
+import app.main as main
 
 
 def _sign(payload: bytes, secret: str) -> str:

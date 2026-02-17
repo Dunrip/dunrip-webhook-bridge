@@ -4,9 +4,9 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-import main
-from storage import MemoryStorage
-from tg_client import TelegramSendError
+import app.main as main
+from app.infra.storage import MemoryStorage
+from app.services.tg_client import TelegramSendError
 
 
 def _client(monkeypatch, client_host: str = "testclient") -> TestClient:
@@ -28,7 +28,7 @@ def _client(monkeypatch, client_host: str = "testclient") -> TestClient:
     monkeypatch.setattr(main.settings, "trusted_proxies", "")
     monkeypatch.setattr(main.settings, "admin_ip_allowlist", "")
     monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
-    from circuit_breaker import telegram_circuit
+    from app.infra.circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
     # TestClient only runs lifespan when used as a context manager; these tests
@@ -119,7 +119,7 @@ def test_replay_requires_replay_scope(monkeypatch) -> None:
     async def ok_send(_: str) -> None:
         return None
 
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", ok_send)
 
     denied = client.post(f"/deliveries/{ids[0]}/replay", headers={"X-API-Key": "read-only"})
@@ -207,7 +207,7 @@ def test_replay_delivery_success(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "send_message", fake_send)
     # Also patch in replay module
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -240,7 +240,7 @@ def test_replay_delivery_telegram_failure(monkeypatch) -> None:
         raise TelegramSendError("still broken")
 
     monkeypatch.setattr(main, "send_message", fail_send)
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", fail_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -264,7 +264,7 @@ def test_replay_generic_delivery(monkeypatch) -> None:
         sent.append(text)
 
     monkeypatch.setattr(main, "send_message", fake_send)
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     # ids[1] is the generic delivery
@@ -286,7 +286,7 @@ def test_replay_all_success(monkeypatch) -> None:
         sent.append(text)
 
     monkeypatch.setattr(main, "send_message", fake_send)
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     response = client.post("/deliveries/replay-all")
@@ -313,7 +313,7 @@ def test_replay_all_partial_failure(monkeypatch) -> None:
             raise TelegramSendError("fail on second")
 
     monkeypatch.setattr(main, "send_message", sometimes_fail)
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", sometimes_fail)
 
     response = client.post("/deliveries/replay-all")
@@ -369,7 +369,7 @@ def test_replay_cooldown_enforced(monkeypatch) -> None:
     async def ok_send(_: str) -> None:
         return None
 
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", ok_send)
 
     first = client.post(f"/deliveries/{ids[0]}/replay")
@@ -387,7 +387,7 @@ def test_replay_idempotency_key_blocks_duplicates(monkeypatch) -> None:
     async def ok_send(_: str) -> None:
         return None
 
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", ok_send)
 
     headers = {"Idempotency-Key": "abc", "X-API-Key": "admin-test-key"}
@@ -407,7 +407,7 @@ def test_replay_max_attempts_moves_to_dead_letter(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("boom")
 
-    import replay
+    import app.api.replay as replay
     monkeypatch.setattr(replay, "send_message", fail_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")

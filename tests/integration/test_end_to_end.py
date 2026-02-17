@@ -5,8 +5,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import main
-from tg_client import TelegramSendError
+import app.main as main
+from app.services.tg_client import TelegramSendError
 
 
 pytestmark = pytest.mark.integration

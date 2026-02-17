@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitState
+from app.infra.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitState
 
 
 def test_circuit_starts_closed():

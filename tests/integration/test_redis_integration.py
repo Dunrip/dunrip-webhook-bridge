@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from storage import RedisStorage
+from app.infra.storage import RedisStorage
 
 
 pytestmark = pytest.mark.integration
