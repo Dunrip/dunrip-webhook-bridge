@@ -1,12 +1,12 @@
 # Deploy to Render
 
-This project includes a Render blueprint (`render.yaml`) and is optimized for web-service deployment from Docker.
+This project includes a Render blueprint (`deploy/render.yaml`) and is optimized for web-service deployment from Docker.
 
 ## Steps
 
 1. Push repository to GitHub.
 2. In Render, create a **Blueprint** service from this repo.
-3. Confirm `Dockerfile` is detected.
+3. Confirm `deploy/Dockerfile` is detected (Render reads this from `deploy/render.yaml`).
 4. Set required environment variables:
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_CHAT_ID`

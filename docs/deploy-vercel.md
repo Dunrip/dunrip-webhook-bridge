@@ -1,6 +1,6 @@
 # Deploy on Vercel (Free Tier Friendly)
 
-This project supports Vercel via `api/index.py` + `vercel.json`.
+This project supports Vercel via `api/index.py` + `vercel.json` (root compatibility shim). Canonical deployment config is `deploy/vercel.json`.
 
 `api/index.py` imports the canonical ASGI app from `app.main`.
 

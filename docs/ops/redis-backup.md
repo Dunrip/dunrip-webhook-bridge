@@ -20,9 +20,9 @@ Back up Redis data used by:
 ### 1) Trigger save and copy snapshot
 
 ```bash
-docker compose exec redis redis-cli BGSAVE
-docker compose exec redis ls -lh /data/dump.rdb
-docker compose cp redis:/data/dump.rdb ./backups/dump-$(date +%F-%H%M).rdb
+docker compose -f deploy/docker-compose.yml exec redis redis-cli BGSAVE
+docker compose -f deploy/docker-compose.yml exec redis ls -lh /data/dump.rdb
+docker compose -f deploy/docker-compose.yml cp redis:/data/dump.rdb ./backups/dump-$(date +%F-%H%M).rdb
 ```
 
 ### 2) Verify backup file
@@ -35,9 +35,9 @@ redis-check-rdb ./backups/dump-YYYY-MM-DD-HHMM.rdb
 ### 3) Restore from snapshot
 
 ```bash
-docker compose down
+docker compose -f deploy/docker-compose.yml down
 cp ./backups/dump-YYYY-MM-DD-HHMM.rdb ./redis-data/dump.rdb
-docker compose up -d redis
+docker compose -f deploy/docker-compose.yml up -d redis
 ```
 
 > Ensure your Redis volume/path maps to where `dump.rdb` is loaded.
@@ -68,7 +68,7 @@ sudo systemctl start redis-server
 
 ## Post-restore Checks
 
-- `docker compose logs redis --tail=100` (or `journalctl -u redis-server`)
+- `docker compose -f deploy/docker-compose.yml logs redis --tail=100` (or `journalctl -u redis-server`)
 - Verify webhook-bridge can read/write keys
 - Run `make smoke`
 - Confirm `/health/deep` and replay endpoints behave normally
