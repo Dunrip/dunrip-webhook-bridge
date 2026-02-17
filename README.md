@@ -15,6 +15,13 @@
 
 Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
 
+## Quick Navigation
+
+- **First run (operator path):** [Quick Start](#quick-start)
+- **Choose deploy mode:** [Deployment](#deployment)
+- **Fast incident triage:** [Operator Troubleshooting Decision Tree](docs/ops/troubleshooting-decision-tree.md)
+- **Release governance:** [Release Checklist](docs/release-checklist.md) + [Weekly KPI Scorecard](docs/ops/kpi-scorecard-template.md)
+
 > **Code layout note:** Canonical runtime modules now live under `app/` (for example `app/main.py`).
 > Root-level module files are temporary compatibility shims and will be removed in a later cleanup. See [`SHIMS.md`](SHIMS.md).
 
@@ -90,15 +97,23 @@ git clone https://github.com/Dunrip/dunrip-webhook-bridge.git
 cd dunrip-webhook-bridge
 ```
 
-### 2) Run guided setup
+### 2) Choose deploy mode before first run
+
+- **Docker/self-hosted ops:** continue below with `make first-run`
+- **Vercel/serverless:** use [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
+- **Render managed container:** use [`docs/deploy-render.md`](docs/deploy-render.md)
+
+### 3) Run first-run sequence (Docker path)
 
 ```bash
-make first-run
+make wizard
+make up
+make smoke
 ```
 
-This runs wizard + startup + smoke checks.
+Equivalent shortcut: `make first-run`.
 
-### 3) Add GitHub webhook
+### 4) Add GitHub webhook
 
 In your GitHub repository:
 - **Settings → Webhooks → Add webhook**
@@ -199,6 +214,8 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
 
 ## Troubleshooting
 
+Start here for fastest triage: [docs/ops/troubleshooting-decision-tree.md](docs/ops/troubleshooting-decision-tree.md)
+
 - `make smoke` fails with 401 on admin endpoints:
   - check admin key precedence (`ADMIN_API_KEYS*` overrides `ADMIN_API_KEY`)
 - Service fails on startup with env validation errors:
@@ -206,6 +223,15 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
   - check for empty numeric env values
 - GitHub webhook 401 invalid signature:
   - webhook secret in GitHub must exactly match `GITHUB_WEBHOOK_SECRET`
+
+### Copy/paste recovery playbook (env mismatch after edits)
+
+```bash
+docker compose -f deploy/docker-compose.yml down
+docker compose -f deploy/docker-compose.yml --env-file .env up -d --force-recreate
+make doctor
+make smoke
+```
 
 ### `make doctor` quick fixes
 
