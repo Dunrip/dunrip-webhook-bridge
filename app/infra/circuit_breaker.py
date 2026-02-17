@@ -7,8 +7,8 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from config import settings
-from exceptions import CircuitBreakerError
+from app.core.config import settings
+from app.core.exceptions import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 

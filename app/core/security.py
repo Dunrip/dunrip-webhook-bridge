@@ -13,9 +13,9 @@ from functools import partial
 import anyio
 from fastapi import Header, Request, WebSocket
 
-from config import settings
-from exceptions import AuthenticationError, ValidationError
-from observability import audit_log, fingerprint_api_key
+from app.core.config import settings
+from app.core.exceptions import AuthenticationError, ValidationError
+from app.observability.observability import audit_log, fingerprint_api_key
 
 logger = logging.getLogger(__name__)
 _VALID_SCOPES = {"read", "replay", "admin"}

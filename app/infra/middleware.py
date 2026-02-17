@@ -6,10 +6,10 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from config import settings
-from errors import ErrorCode
-from observability import new_request_id, request_id_ctx
-from security import get_client_ip
+from app.core.config import settings
+from app.core.errors import ErrorCode
+from app.observability.observability import new_request_id, request_id_ctx
+from app.core.security import get_client_ip
 
 try:
     from redis import RedisError

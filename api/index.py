@@ -1,3 +1,3 @@
 """Vercel serverless entrypoint for FastAPI app."""
 
-from main import app
+from app.main import app

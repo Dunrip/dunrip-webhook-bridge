@@ -5,9 +5,9 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from formatters import get_formatter
-from models import GenericWebhookPayload
-from tg_client import format_generic
+from app.services.formatters import get_formatter
+from app.models.models import GenericWebhookPayload
+from app.services.tg_client import format_generic
 
 logger = logging.getLogger(__name__)
 

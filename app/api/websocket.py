@@ -12,9 +12,9 @@ from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from config import settings
-from observability import audit_log
-from security import (
+from app.core.config import settings
+from app.observability.observability import audit_log
+from app.core.security import (
     authenticate_admin_api_key_headers,
     get_websocket_client_ip,
     is_ws_ip_allowed,

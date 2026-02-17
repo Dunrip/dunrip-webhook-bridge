@@ -31,7 +31,7 @@ import httpx
 
 import yaml
 
-from config import settings
+from app.core.config import settings
 from destinations.base import Destination, DestinationError
 from destinations.discord import DiscordDestination
 from destinations.slack import SlackDestination

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol, TypeAlias
 
-from tg_client import (
+from app.services.tg_client import (
     format_issue_event,
     format_pr_event,
     format_push_event,

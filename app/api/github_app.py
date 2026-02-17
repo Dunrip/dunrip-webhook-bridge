@@ -16,7 +16,7 @@ import httpx
 import jwt
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from config import settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

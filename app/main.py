@@ -16,21 +16,21 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import Counter, Histogram, CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
 
-from circuit_breaker import telegram_circuit
-from config import settings
-from errors import ErrorCode
-from exceptions import CircuitBreakerError, ValidationError, WebhookError
-from formatters import get_formatter
-from middleware import RequestContextMiddleware, RateLimitMiddleware, create_rate_limit_backend
-from observability import RequestContextFilter
-from models import GenericWebhookPayload
-from replay import router as replay_router
-from routing import load_routes, route_event
-from sandbox import router as sandbox_router
-from security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
-from storage import Redis, RedisError, Storage, create_storage_backend
-from tg_client import TelegramSendError, format_generic, send_message
-from websocket import broadcaster, router as ws_router
+from app.infra.circuit_breaker import telegram_circuit
+from app.core.config import settings
+from app.core.errors import ErrorCode
+from app.core.exceptions import CircuitBreakerError, ValidationError, WebhookError
+from app.services.formatters import get_formatter
+from app.infra.middleware import RequestContextMiddleware, RateLimitMiddleware, create_rate_limit_backend
+from app.observability.observability import RequestContextFilter
+from app.models.models import GenericWebhookPayload
+from app.api.replay import router as replay_router
+from app.services.routing import load_routes, route_event
+from app.api.sandbox import router as sandbox_router
+from app.core.security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
+from app.infra.storage import Redis, RedisError, Storage, create_storage_backend
+from app.services.tg_client import TelegramSendError, format_generic, send_message
+from app.api.websocket import broadcaster, router as ws_router
 
 logging.basicConfig(
     level=settings.log_level,
@@ -181,7 +181,7 @@ def create_app() -> FastAPI:
 
     # Conditionally include GitHub App router
     if settings.github_app_id and settings.github_app_private_key:
-        from github_app import router as github_app_router
+        from app.api.github_app import router as github_app_router
         app.include_router(github_app_router)
 
     @app.exception_handler(WebhookError)

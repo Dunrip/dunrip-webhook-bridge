@@ -23,7 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in no-network envs
         """Fallback Redis error type when redis package is unavailable."""
 
 
-from config import settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

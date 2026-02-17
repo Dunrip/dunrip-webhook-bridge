@@ -5,7 +5,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
-from config import settings
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

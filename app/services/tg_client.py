@@ -8,9 +8,9 @@ from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import NetworkError, RetryAfter, TimedOut
 
-from circuit_breaker import telegram_circuit
-from config import settings
-from observability import get_request_id
+from app.infra.circuit_breaker import telegram_circuit
+from app.core.config import settings
+from app.observability.observability import get_request_id
 
 logger = logging.getLogger(__name__)
 

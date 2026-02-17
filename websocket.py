@@ -1,4 +1,4 @@
+import sys
 from app.api import websocket as _m
 
-globals().update({k: getattr(_m, k) for k in dir(_m) if not k.startswith('__')})
-__all__ = [k for k in dir(_m) if not k.startswith('__')]
+sys.modules[__name__] = _m

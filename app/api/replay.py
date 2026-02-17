@@ -6,13 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 
-from config import settings
-from exceptions import ValidationError
-from formatters import get_formatter
-from observability import audit_log, fingerprint_api_key
-from security import get_client_ip, is_admin_ip_allowed, require_admin_scope
-from storage import Storage
-from tg_client import TelegramSendError, format_generic, send_message
+from app.core.config import settings
+from app.core.exceptions import ValidationError
+from app.services.formatters import get_formatter
+from app.observability.observability import audit_log, fingerprint_api_key
+from app.core.security import get_client_ip, is_admin_ip_allowed, require_admin_scope
+from app.infra.storage import Storage
+from app.services.tg_client import TelegramSendError, format_generic, send_message
 
 logger = logging.getLogger(__name__)
 
