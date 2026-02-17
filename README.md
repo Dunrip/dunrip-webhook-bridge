@@ -15,6 +15,9 @@
 
 Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
 
+> **Code layout note:** Canonical runtime modules now live under `app/` (for example `app/main.py`).
+> Root-level module files are temporary compatibility shims and will be removed in a later cleanup.
+
 ---
 
 ## Sample Telegram Output
