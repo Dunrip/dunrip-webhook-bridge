@@ -111,19 +111,27 @@ make down         # stop services
 
 ---
 
-## Endpoints
+## API Reference (Compact)
 
-- `POST /webhook/github` — GitHub webhook endpoint
-- `POST /webhook/generic` — generic webhook endpoint
-- `GET /health` — basic health check
-- `GET /health/deep` — deep health (includes downstream checks)
-- `GET /metrics` — Prometheus metrics
+| Endpoint | Method | Auth | Purpose |
+| --- | --- | --- | --- |
+| `/webhook/github` | POST | GitHub HMAC signature | Receive GitHub webhook events |
+| `/webhook/generic` | POST | `X-Webhook-Token` | Receive generic webhook payloads |
+| `/health` | GET | None | Basic liveness check |
+| `/health/deep` | GET | None | Downstream-aware health (Telegram + breaker state) |
+| `/metrics` | GET | None | Prometheus metrics export |
+| `/deliveries` | GET | Admin API key (`read+`) | List failed deliveries |
+| `/deliveries/{id}/replay` | POST | Admin API key (`replay+`) | Replay one failed delivery |
+| `/deliveries/replay-all` | POST | Admin API key (`replay+`) | Replay eligible failed deliveries |
+| `/stream/logs` | WS | Admin API key (`read+`) | Stream operational events/log metadata |
 
-Admin endpoints (require admin auth):
-- `GET /deliveries`
-- `POST /deliveries/{id}/replay`
-- `POST /deliveries/replay-all`
-- `WS /stream/logs`
+
+---
+
+## Routing Use Cases
+
+- [Multiple repositories → one chat](docs/use-cases-routing.md#multiple-repositories--one-chat)
+- [Multi-chat routing](docs/use-cases-routing.md#multi-chat-routing)
 
 ---
 
