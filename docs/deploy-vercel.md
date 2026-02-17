@@ -2,6 +2,8 @@
 
 This project supports Vercel via `api/index.py` + `vercel.json`.
 
+`api/index.py` imports the canonical ASGI app from `app.main`.
+
 ## 1) Import project to Vercel
 
 1. Go to https://vercel.com/new

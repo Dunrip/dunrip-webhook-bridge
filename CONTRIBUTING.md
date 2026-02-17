@@ -34,6 +34,13 @@ pip install -r requirements.txt
 pytest
 ```
 
+## Package Layout (Transition)
+
+- Canonical Python package path is `app/`.
+- Canonical ASGI app entrypoint is `app/main.py`.
+- Root-level modules (for example `main.py`, `config.py`) are temporary compatibility shims.
+- Prefer `app.*` imports in new or updated code.
+
 ## Pull Request Process
 
 1. Create a branch for your change.
