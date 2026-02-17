@@ -63,17 +63,20 @@ git_remote=$(git remote get-url origin 2>/dev/null || true)
 repo_slug=""
 case "$git_remote" in
   git@github.com:*)
-    repo_slug=$(printf "%s" "$git_remote" | sed -E 's#git@github.com:([^ ]+)\.git#\1#')
+    repo_slug=$(printf "%s" "$git_remote" | sed -E 's#^git@github.com:([^ ]+?)(\.git)?$#\1#')
     ;;
-  https://github.com/*)
-    repo_slug=$(printf "%s" "$git_remote" | sed -E 's#https://github.com/([^ ]+)\.git#\1#')
+  https://github.com/*|http://github.com/*)
+    repo_slug=$(printf "%s" "$git_remote" | sed -E 's#^https?://github.com/([^ ]+?)(\.git)?/?$#\1#')
     ;;
 esac
 
 if command -v gh >/dev/null 2>&1 && [ -n "$repo_slug" ]; then
-  gh api "repos/$repo_slug/actions/runs?per_page=20" > "$evidence_dir/workflow-runs.json" || true
+  if ! gh api "repos/$repo_slug/actions/runs?per_page=20" > "$evidence_dir/workflow-runs.json" 2> "$evidence_dir/workflow-runs.err"; then
+    err_text=$(tr '\n' ' ' < "$evidence_dir/workflow-runs.err" | sed 's/"/\\"/g')
+    printf '{"status":"error","repo_slug":"%s","error":"%s"}\n' "$repo_slug" "$err_text" > "$evidence_dir/workflow-runs.json"
+  fi
 else
-  printf '{"note":"gh CLI not available or repo slug unresolved"}\n' > "$evidence_dir/workflow-runs.json"
+  printf '{"status":"skipped","reason":"gh CLI not available or repo slug unresolved","git_remote":"%s"}\n' "$git_remote" > "$evidence_dir/workflow-runs.json"
 fi
 
 if [ -n "$BENCHMARK_BASELINE_FILE" ] && [ -n "$BENCHMARK_CURRENT_FILE" ] && [ -f "$BENCHMARK_BASELINE_FILE" ] && [ -f "$BENCHMARK_CURRENT_FILE" ]; then
