@@ -1,6 +1,6 @@
 fastapi>=0.110,<1
 uvicorn[standard]>=0.29,<1
-python-telegram-bot>=20.8,<22
+python-telegram-bot>=20.8,<23
 pydantic-settings>=2.2,<3
 python-dotenv>=1.0,<2
 anyio>=4.0,<5
