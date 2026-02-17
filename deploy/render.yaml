@@ -3,7 +3,7 @@ services:
     name: webhook-bridge
     runtime: docker
     plan: starter
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./deploy/Dockerfile
     autoDeploy: true
     healthCheckPath: /health
     envVars:

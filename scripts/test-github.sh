@@ -70,7 +70,7 @@ if [ "$status" != "200" ]; then
   if [ "$status" = "404" ]; then
     fail "Endpoint not found\n   Fix: verify BASE_URL points to webhook-bridge (current: $BASE_URL)"
   fi
-  fail "Unexpected response from /webhook/github\n   Fix: check logs with 'docker compose logs -f webhook-bridge'"
+  fail "Unexpected response from /webhook/github\n   Fix: check logs with 'docker compose -f deploy/docker-compose.yml logs -f webhook-bridge'"
 fi
 
 if ! python3 - "$resp_file" <<'PY'
@@ -80,7 +80,7 @@ if obj.get('status') != 'pong':
     raise SystemExit(1)
 PY
 then
-  fail "Request returned HTTP 200 but response body was unexpected\n   Fix: check service logs: 'docker compose logs -f webhook-bridge'"
+  fail "Request returned HTTP 200 but response body was unexpected\n   Fix: check service logs: 'docker compose -f deploy/docker-compose.yml logs -f webhook-bridge'"
 fi
 
 ok "GitHub webhook test passed (/webhook/github returned status=pong)"

@@ -1,5 +1,8 @@
 .PHONY: setup wizard up smoke test-github first-run doctor down release
 
+COMPOSE_FILE ?= deploy/docker-compose.yml
+COMPOSE ?= docker compose -f $(COMPOSE_FILE)
+
 setup:
 	./scripts/bootstrap.sh
 
@@ -7,7 +10,7 @@ wizard:
 	python3 ./scripts/setup-wizard.py
 
 up:
-	docker compose up -d
+	$(COMPOSE) up -d
 
 smoke:
 	./scripts/smoke-test.sh
@@ -21,7 +24,7 @@ doctor:
 	./scripts/doctor.sh
 
 down:
-	docker compose down
+	$(COMPOSE) down
 
 release:
 	VERSION=$(VERSION) ./scripts/release.sh

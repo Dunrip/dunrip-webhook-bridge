@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_ROOT/deploy/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 
@@ -105,7 +106,7 @@ fi
 
 # Compose + runtime mismatch checks
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  if docker compose -f "$PROJECT_ROOT/docker-compose.yml" config >/tmp/webhook-bridge-compose-doctor.txt 2>/tmp/webhook-bridge-compose-doctor.err; then
+  if docker compose -f "$COMPOSE_FILE" config >/tmp/webhook-bridge-compose-doctor.txt 2>/tmp/webhook-bridge-compose-doctor.err; then
     if grep -q "ADMIN_API_KEY:" /tmp/webhook-bridge-compose-doctor.txt; then
       ok "docker compose config includes ADMIN_API_KEY mapping"
     else
@@ -113,12 +114,12 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       echo "   Fix: add ADMIN_API_KEY env mapping under webhook-bridge service"
     fi
 
-    cid=$(docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps -q webhook-bridge || true)
+    cid=$(docker compose -f "$COMPOSE_FILE" ps -q webhook-bridge || true)
     if [ -n "$cid" ]; then
       runtime_admin=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$cid" | awk -F= '$1=="ADMIN_API_KEY" {sub(/^ADMIN_API_KEY=/, "", $0); print $0}')
       if [ -n "${ADMIN_API_KEY:-}" ] && [ -n "$runtime_admin" ] && [ "$runtime_admin" != "$ADMIN_API_KEY" ]; then
         warn "Running container ADMIN_API_KEY differs from .env."
-        echo "   Fix: docker compose up -d --force-recreate webhook-bridge"
+        echo "   Fix: docker compose -f deploy/docker-compose.yml up -d --force-recreate webhook-bridge"
       else
         ok "No ADMIN_API_KEY runtime mismatch detected"
       fi
@@ -138,7 +139,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   else
     err "docker compose config check failed"
     echo "   Details: $(cat /tmp/webhook-bridge-compose-doctor.err)"
-    echo "   Fix: validate docker-compose.yml and .env variable interpolation"
+    echo "   Fix: validate deploy/docker-compose.yml and .env variable interpolation"
   fi
 fi
 
