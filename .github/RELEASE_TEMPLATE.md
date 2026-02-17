@@ -32,6 +32,8 @@
 
 ## Post-release Checklist
 
+- [ ] Capture evidence bundle (`BASE_URL=https://<prod-url> RELEASE_VERSION=vX.Y.Z make post-release-verify`)
+- [ ] Attach/link `docs/release-evidence/<release-or-date>/summary.md`
 - [ ] Monitor alerts and logs for 30-60 minutes
 - [ ] Confirm webhook delivery success rate baseline
 - [ ] Open follow-up issues for deferred work

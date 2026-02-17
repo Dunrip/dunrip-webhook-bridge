@@ -1,4 +1,4 @@
-.PHONY: setup wizard up smoke test-github first-run doctor down release benchmark benchmark-baseline benchmark-compare
+.PHONY: setup wizard up smoke test-github first-run doctor down release benchmark benchmark-baseline benchmark-compare post-release-verify
 
 COMPOSE_FILE ?= deploy/docker-compose.yml
 PROJECT_DIR ?= .
@@ -38,3 +38,6 @@ benchmark-baseline:
 
 benchmark-compare:
 	PYTHONPATH=. .venv/bin/python scripts/benchmark_local.py --iterations $${ITERATIONS:-100} --compare-baseline $${BASELINE:-.benchmarks/local-baseline.json} --max-p95-regression-pct $${MAX_P95_REGRESSION_PCT:-20} --max-error-rate-regression-abs $${MAX_ERROR_RATE_REGRESSION_ABS:-0.01}
+
+post-release-verify:
+	./scripts/post-release-verify.sh
