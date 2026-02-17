@@ -37,5 +37,9 @@ Examples:
 ## Post-release
 
 - [ ] Validate smoke checks on target environment
+- [ ] Validate `/health`, `/health/deep`, and `/metrics` from production ingress
+- [ ] Send signed GitHub ping (`make test-github` or real webhook test repo)
+- [ ] Verify at least one Telegram delivery for each critical route
 - [ ] Monitor logs/alerts for first 30–60 minutes
+- [ ] Confirm error-rate and latency panels stay within baseline in Grafana
 - [ ] Open follow-up issues for deferred items

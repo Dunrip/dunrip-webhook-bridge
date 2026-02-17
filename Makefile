@@ -1,4 +1,4 @@
-.PHONY: setup wizard up smoke test-github first-run doctor down
+.PHONY: setup wizard up smoke test-github first-run doctor down release
 
 setup:
 	./scripts/bootstrap.sh
@@ -22,3 +22,6 @@ doctor:
 
 down:
 	docker compose down
+
+release:
+	VERSION=$(VERSION) ./scripts/release.sh
