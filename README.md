@@ -137,9 +137,9 @@ make down         # stop services
 
 ## Deployment
 
-- **Recommended:** Docker + reverse proxy with HTTPS
-- Render deployment is supported via `render.yaml`
-- For self-hosted VPS, use your domain and forward to service on port `8000`
+- **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
+- Render deployment is supported via `render.yaml` — see [`docs/deploy-render.md`](docs/deploy-render.md)
+- **Best long-running ops:** Docker + reverse proxy with HTTPS on VPS/self-hosted
 
 ---
 
