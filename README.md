@@ -149,6 +149,7 @@ make down         # stop services
 ## Deployment
 
 - **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
+  - For production reliability on serverless, use Redis-backed state (`STORAGE_BACKEND=redis`, `RATE_LIMIT_BACKEND=redis`).
 - Render deployment is supported via `deploy/render.yaml` — see [`docs/deploy-render.md`](docs/deploy-render.md)
 - **Best long-running ops:** Docker + reverse proxy with HTTPS on VPS/self-hosted
 

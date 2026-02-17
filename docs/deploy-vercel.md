@@ -20,13 +20,13 @@ In **Project Settings → Environment Variables**, add at minimum:
 - `GENERIC_WEBHOOK_TOKEN`
 - `ADMIN_API_KEYS` (recommended) or `ADMIN_API_KEY`
 
-Optional but recommended:
+Optional but strongly recommended:
 
 - `STORAGE_BACKEND=redis`
 - `RATE_LIMIT_BACKEND=redis`
 - `REDIS_URL=<Upstash/Redis URL>`
 
-> On serverless, memory backends reset often; Redis gives stable idempotency/replay/rate-limit behavior.
+> On serverless, use Redis-backed state for production reliability. In-memory state resets between invocations and can break idempotency, replay history, and queue durability.
 
 ## 3) Deploy
 
@@ -49,6 +49,7 @@ In your GitHub repo:
 
 ## Notes / Limitations
 
-- WebSocket log stream (`/stream/logs`) is not ideal on serverless environments.
+- Request handler path is optimized for fast ingest/ack and deferred processing behavior.
+- WebSocket log stream (`/stream/logs`) is best-effort on serverless and should degrade gracefully when upgrades are unsupported.
 - `/metrics` is available but Vercel instances are ephemeral; use external scraping/storage if needed.
 - For always-on long-lived ops behavior, VPS/Docker is still the strongest option.
