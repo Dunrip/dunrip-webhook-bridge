@@ -45,7 +45,7 @@ class TestTelegramDestination:
 
     @pytest.mark.asyncio
     async def test_send_failure_raises_destination_error(self, monkeypatch):
-        from tg_client import TelegramSendError
+        from app.services.tg_client import TelegramSendError
 
         async def fake_send(msg, **kwargs):
             raise TelegramSendError("boom")

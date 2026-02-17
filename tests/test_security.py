@@ -7,8 +7,8 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-import security
-from exceptions import WebhookError
+import app.core.security as security
+from app.core.exceptions import WebhookError
 
 
 def _sign(payload: bytes, secret: str) -> str:

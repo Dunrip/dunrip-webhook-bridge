@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from routing import RouteFilter, Route, load_routes, route_event, _extract_branch
+from app.services.routing import RouteFilter, Route, load_routes, route_event, _extract_branch
 from destinations.base import Destination, DestinationError
 
 
@@ -167,7 +167,7 @@ class TestRouteEvent:
     @pytest.mark.asyncio
     async def test_matching_route_sends(self, monkeypatch):
         dest = FakeDestination("telegram")
-        monkeypatch.setattr("routing._build_destination", lambda name, **kwargs: dest)
+        monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: dest)
 
         routes = [Route(name="all", destination_name="telegram")]
         results = await route_event(routes, "hello", "push", {})
@@ -178,7 +178,7 @@ class TestRouteEvent:
     @pytest.mark.asyncio
     async def test_non_matching_route_skipped(self, monkeypatch):
         dest = FakeDestination("telegram")
-        monkeypatch.setattr("routing._build_destination", lambda name, **kwargs: dest)
+        monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: dest)
 
         routes = [Route(name="releases", destination_name="telegram", filter=RouteFilter(event_type="release"))]
         results = await route_event(routes, "hello", "push", {})
@@ -188,7 +188,7 @@ class TestRouteEvent:
     @pytest.mark.asyncio
     async def test_failed_destination(self, monkeypatch):
         dest = FakeDestination("discord", should_fail=True)
-        monkeypatch.setattr("routing._build_destination", lambda name, **kwargs: dest)
+        monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: dest)
 
         routes = [Route(name="r", destination_name="discord")]
         results = await route_event(routes, "hello", "push", {})
@@ -197,7 +197,7 @@ class TestRouteEvent:
 
     @pytest.mark.asyncio
     async def test_none_destination_skipped(self, monkeypatch):
-        monkeypatch.setattr("routing._build_destination", lambda name, **kwargs: None)
+        monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: None)
 
         routes = [Route(name="r", destination_name="unknown")]
         results = await route_event(routes, "hello", "push", {})
@@ -211,7 +211,7 @@ class TestRouteEvent:
         def build(name, **kwargs):
             return dest_tg if name == "telegram" else dest_dc
 
-        monkeypatch.setattr("routing._build_destination", build)
+        monkeypatch.setattr("app.services.routing._build_destination", build)
 
         routes = [
             Route(name="tg", destination_name="telegram"),

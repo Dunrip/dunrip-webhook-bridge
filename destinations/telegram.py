@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from destinations.base import Destination, DestinationError
-from tg_client import TelegramSendError, send_message
+from app.services.tg_client import TelegramSendError, send_message
 
 
 class TelegramDestination(Destination):

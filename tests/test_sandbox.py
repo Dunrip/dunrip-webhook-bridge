@@ -3,7 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import main
+import app.main as main
 
 
 def _client(monkeypatch) -> TestClient:
@@ -16,7 +16,7 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(main.settings, "rate_limit_ip_per_minute", 1000)
     monkeypatch.setattr(main.settings, "rate_limit_token_per_minute", 1000)
-    from circuit_breaker import telegram_circuit
+    from app.infra.circuit_breaker import telegram_circuit
     telegram_circuit._reset()
     app = main.create_app()
     return TestClient(app)
