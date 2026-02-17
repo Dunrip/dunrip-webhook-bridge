@@ -172,6 +172,27 @@ def _parse_scoped_keys(raw: str) -> dict[str, str]:
     return parsed
 
 
+def _parse_admin_keys(raw: str) -> dict[str, str]:
+    """Parse ADMIN_API_KEYS-style values.
+
+    Supports both scoped pairs ("key:scope") and bare keys ("key"), where
+    bare keys are treated as admin scope for one-key/simple setups.
+    """
+    parsed: dict[str, str] = {}
+    for item in (raw or "").split(","):
+        token = item.strip()
+        if not token:
+            continue
+        if ":" in token:
+            key, scope = token.split(":", 1)
+            key, scope = key.strip(), scope.strip().lower()
+            if key and scope in _VALID_SCOPES:
+                parsed[key] = scope
+            continue
+        parsed[token] = "admin"
+    return parsed
+
+
 def _parse_rotation_started_at(raw: str) -> float | None:
     value = (raw or "").strip()
     if not value:
@@ -197,11 +218,11 @@ def _scope_allows(assigned: str, required: str) -> bool:
 
 
 def _resolve_admin_keys() -> tuple[dict[str, str], dict[str, str]]:
-    active = _parse_scoped_keys(settings.admin_api_keys_active)
-    previous = _parse_scoped_keys(settings.admin_api_keys_previous)
+    active = _parse_admin_keys(settings.admin_api_keys_active)
+    previous = _parse_admin_keys(settings.admin_api_keys_previous)
     if active:
         return active, previous
-    scoped = _parse_scoped_keys(settings.admin_api_keys)
+    scoped = _parse_admin_keys(settings.admin_api_keys)
     if scoped:
         return scoped, {}
     if settings.admin_api_key:

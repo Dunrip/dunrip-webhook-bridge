@@ -97,8 +97,8 @@ You can configure these via `make wizard`.
 - `GITHUB_WEBHOOK_SECRET` — shared secret for GitHub signature verification
 - `GENERIC_WEBHOOK_TOKEN` — token for `/webhook/generic`
 - Admin auth (choose one):
-  - Preferred: `ADMIN_API_KEYS` (scoped format like `key1:read,key2:replay,key3:admin`)
-  - Legacy: `ADMIN_API_KEY`
+  - Preferred: `ADMIN_API_KEYS` (supports either scoped CSV like `key1:read,key2:replay,key3:admin` or a single bare key like `my-admin-key`)
+  - Legacy: `ADMIN_API_KEY` (equivalent to one bare admin key)
 
 Generate secure secrets:
 

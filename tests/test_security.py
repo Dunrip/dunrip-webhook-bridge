@@ -77,6 +77,15 @@ def test_legacy_admin_key_backcompat(monkeypatch):
     assert client.get("/admin", headers={"X-API-Key": "legacy"}).status_code == 200
 
 
+def test_admin_api_keys_single_key_equivalent_to_legacy(monkeypatch):
+    monkeypatch.setattr(security.settings, "admin_api_keys", "single-admin-key")
+    monkeypatch.setattr(security.settings, "admin_api_keys_active", "")
+    monkeypatch.setattr(security.settings, "admin_api_keys_previous", "")
+    monkeypatch.setattr(security.settings, "admin_api_key", "")
+    client = _build_client()
+    assert client.get("/admin", headers={"X-API-Key": "single-admin-key"}).status_code == 200
+
+
 def test_verify_github_signature_valid(monkeypatch):
     monkeypatch.setattr(security.settings, "github_webhook_secret", "topsecret")
     monkeypatch.setattr(security.settings, "max_body_size", 1024 * 1024)
