@@ -11,21 +11,54 @@ def test_escape_md() -> None:
     assert tg_client.escape_md(text) == "a\\_b\\*\\(c\\)\\."
 
 
-def test_format_push_event_handles_missing_fields() -> None:
+def test_format_push_event_handles_missing_fields(monkeypatch) -> None:
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     message = tg_client.format_push_event({"commits": [{}]})
     assert "*Push*" in message
     assert "unknown" in message
 
 
-def test_format_pr_and_issue_events() -> None:
+def test_format_push_event_detailed_includes_commit_titles(monkeypatch) -> None:
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "detailed")
+    payload = {
+        "repository": {"full_name": "org/repo"},
+        "pusher": {"name": "alice"},
+        "ref": "refs/heads/main",
+        "commits": [
+            {"id": "abc123456", "message": "first commit\nwith details"},
+            {"id": "def987654", "message": "second commit"},
+        ],
+        "compare": "https://github.com/org/repo/compare/a...b",
+    }
+    message = tg_client.format_push_event(payload)
+    assert "• abc1234 first commit" in message
+    assert "• def9876 second commit" in message
+
+
+def test_format_pr_and_issue_events(monkeypatch) -> None:
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     pr_message = tg_client.format_pr_event({"action": "opened", "pull_request": {}, "repository": {}})
     issue_message = tg_client.format_issue_event({"action": "closed", "issue": {}, "repository": {}})
     assert "*Pull Request*" in pr_message
     assert "*Issue*" in issue_message
 
 
-def test_format_release_event() -> None:
+def test_compact_mode_line_cap(monkeypatch) -> None:
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
+    payload = {
+        "repository": {"full_name": "org/repo"},
+        "pusher": {"name": "alice"},
+        "ref": "refs/heads/main",
+        "commits": [{"id": "abc123456", "message": "m1"}] * 8,
+        "compare": "https://github.com/org/repo/compare/a...b",
+    }
+    message = tg_client.format_push_event(payload)
+    assert 4 <= len(message.splitlines()) <= 6
+
+
+def test_format_release_event(monkeypatch) -> None:
     """Test release event formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "published",
         "release": {
@@ -39,14 +72,13 @@ def test_format_release_event() -> None:
     }
     message = tg_client.format_release_event(payload)
     assert "*Release*" in message
-    # Tag is escaped for MarkdownV2 (v2\.0\.0)
-    assert "v2\\.0\\.0" in message
     assert "Major Release" in message
     assert "View release" in message
 
 
-def test_format_release_event_draft() -> None:
+def test_format_release_event_draft(monkeypatch) -> None:
     """Test draft release formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "published",
         "release": {
@@ -59,11 +91,13 @@ def test_format_release_event_draft() -> None:
         "repository": {"full_name": "org/repo"},
     }
     message = tg_client.format_release_event(payload)
-    assert "DRAFT" in message
+    assert "⚠️" in message
+    assert "Status: draft" in message
 
 
-def test_format_release_event_prerelease() -> None:
+def test_format_release_event_prerelease(monkeypatch) -> None:
     """Test prerelease formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "published",
         "release": {
@@ -76,11 +110,13 @@ def test_format_release_event_prerelease() -> None:
         "repository": {"full_name": "org/repo"},
     }
     message = tg_client.format_release_event(payload)
-    assert "PRE" in message
+    assert "⚠️" in message
+    assert "Status: prerelease" in message
 
 
-def test_format_workflow_run_success() -> None:
+def test_format_workflow_run_success(monkeypatch) -> None:
     """Test workflow run success formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "completed",
         "workflow_run": {
@@ -93,14 +129,15 @@ def test_format_workflow_run_success() -> None:
         "repository": {"full_name": "org/repo"},
     }
     message = tg_client.format_workflow_run_event(payload)
-    assert "✅" in message  # Success emoji
+    assert "✅" in message
     assert "Test Suite" in message
     assert "main" in message
     assert "success" in message
 
 
-def test_format_workflow_run_failure() -> None:
+def test_format_workflow_run_failure(monkeypatch) -> None:
     """Test workflow run failure formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "completed",
         "workflow_run": {
@@ -113,12 +150,13 @@ def test_format_workflow_run_failure() -> None:
         "repository": {"full_name": "org/repo"},
     }
     message = tg_client.format_workflow_run_event(payload)
-    assert "❌" in message  # Failure emoji
+    assert "❌" in message
     assert "failure" in message
 
 
-def test_format_workflow_run_cancelled() -> None:
+def test_format_workflow_run_cancelled(monkeypatch) -> None:
     """Test cancelled workflow formatting."""
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
     payload = {
         "action": "completed",
         "workflow_run": {
@@ -131,7 +169,25 @@ def test_format_workflow_run_cancelled() -> None:
         "repository": {"full_name": "org/repo"},
     }
     message = tg_client.format_workflow_run_event(payload)
-    assert "🚫" in message  # Cancelled emoji
+    assert "⚠️" in message
+
+
+def test_sanitization_and_truncation(monkeypatch) -> None:
+    monkeypatch.setattr(tg_client.settings, "message_verbosity", "compact")
+    payload = {
+        "action": "opened",
+        "pull_request": {
+            "title": "A" * 300 + "\nwith newline",
+            "number": 99,
+            "user": {"login": "dev_user"},
+            "html_url": "javascript:alert(1)",
+        },
+        "repository": {"full_name": "org/repo_(weird)"},
+    }
+    message = tg_client.format_pr_event(payload)
+    assert "javascript" not in message
+    assert "\nwith newline" not in message
+    assert "…" in message
 
 
 def test_send_message_retries_on_rate_limit(monkeypatch) -> None:

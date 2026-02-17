@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Security / Limits
     max_body_size: int = 1024 * 1024  # 1MB default
     telegram_retries: int = 2
+    message_verbosity: str = "compact"  # compact | detailed
 
     # Idempotency (TTL in seconds)
     idempotency_ttl: int = 3600  # 1 hour
@@ -75,6 +76,14 @@ class Settings(BaseSettings):
         if field is None or field.annotation is not int:
             return value
         return field.default
+
+    @field_validator("message_verbosity", mode="before")
+    @classmethod
+    def _normalize_message_verbosity(cls, value):
+        normalized = str(value or "compact").strip().lower()
+        if normalized not in {"compact", "detailed"}:
+            return "compact"
+        return normalized
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
