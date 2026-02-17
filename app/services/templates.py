@@ -10,7 +10,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Default templates directory (built-in)
-_DEFAULT_TEMPLATE_DIR = Path(__file__).parent / "templates" / "default"
+_DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "default"
 
 # Custom template directory from env var
 _CUSTOM_TEMPLATE_DIR = os.environ.get("TEMPLATE_DIR", "")
