@@ -106,7 +106,7 @@ fi
 
 # Compose + runtime mismatch checks
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  if docker compose -f "$COMPOSE_FILE" config >/tmp/webhook-bridge-compose-doctor.txt 2>/tmp/webhook-bridge-compose-doctor.err; then
+  if docker compose --project-directory "$PROJECT_ROOT" -f "$COMPOSE_FILE" config >/tmp/webhook-bridge-compose-doctor.txt 2>/tmp/webhook-bridge-compose-doctor.err; then
     if grep -q "ADMIN_API_KEY:" /tmp/webhook-bridge-compose-doctor.txt; then
       ok "docker compose config includes ADMIN_API_KEY mapping"
     else
@@ -114,12 +114,12 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       echo "   Fix: add ADMIN_API_KEY env mapping under webhook-bridge service"
     fi
 
-    cid=$(docker compose -f "$COMPOSE_FILE" ps -q webhook-bridge || true)
+    cid=$(docker compose --project-directory "$PROJECT_ROOT" -f "$COMPOSE_FILE" ps -q webhook-bridge || true)
     if [ -n "$cid" ]; then
       runtime_admin=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$cid" | awk -F= '$1=="ADMIN_API_KEY" {sub(/^ADMIN_API_KEY=/, "", $0); print $0}')
       if [ -n "${ADMIN_API_KEY:-}" ] && [ -n "$runtime_admin" ] && [ "$runtime_admin" != "$ADMIN_API_KEY" ]; then
         warn "Running container ADMIN_API_KEY differs from .env."
-        echo "   Fix: docker compose -f deploy/docker-compose.yml up -d --force-recreate webhook-bridge"
+        echo "   Fix: docker compose --project-directory . -f deploy/docker-compose.yml up -d --force-recreate webhook-bridge"
       else
         ok "No ADMIN_API_KEY runtime mismatch detected"
       fi

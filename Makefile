@@ -1,7 +1,8 @@
 .PHONY: setup wizard up smoke test-github first-run doctor down release
 
 COMPOSE_FILE ?= deploy/docker-compose.yml
-COMPOSE ?= docker compose -f $(COMPOSE_FILE)
+PROJECT_DIR ?= .
+COMPOSE ?= docker compose --project-directory $(PROJECT_DIR) -f $(COMPOSE_FILE)
 
 setup:
 	./scripts/bootstrap.sh
