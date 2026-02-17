@@ -22,11 +22,22 @@ Examples:
 - [ ] `.env.example` updated for new config vars
 - [ ] Migration notes added when behavior/config changed
 
+## Security release gate (actionable)
+
+- [ ] Confirm no hardcoded secrets in changed files (`git diff --name-only <last-tag>..HEAD` + manual scan)
+- [ ] Run secrets scan locally when available (e.g. gitleaks) and verify CI secrets scan status is green
+- [ ] Review dependency scan alerts for `main`; no open high/critical findings older than 7 days
+- [ ] Verify webhook signature path still enforced for `/webhook/github`
+- [ ] Verify admin endpoint auth mode is intentional (scoped `ADMIN_API_KEYS` or legacy `ADMIN_API_KEY`, not accidental overlap)
+- [ ] If auth/security behavior changed: update `SECURITY.md` and add release note callout
+
 ## Release prep
 
 - [ ] Choose next SemVer tag
 - [ ] Draft release notes (what changed, migration impact, known issues)
 - [ ] Verify Docker image/build health
+- [ ] Run local reliability benchmark and capture summary in release notes:
+  - `make bench-local`
 
 ## Release
 

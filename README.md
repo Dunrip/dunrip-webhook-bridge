@@ -15,8 +15,8 @@
 
 Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
 
-> **Code layout note:** Canonical runtime modules now live under `app/` (for example `app/main.py`).
-> Root-level module files are temporary compatibility shims and will be removed in a later cleanup. See [`SHIMS.md`](SHIMS.md).
+> **Code layout note:** Canonical runtime modules live under `app/` (for example `app/main.py`).
+> Root-level compatibility shim modules have been removed. See [`SHIMS.md`](SHIMS.md) for migration status.
 
 ---
 
@@ -139,6 +139,7 @@ make up           # start services (docker compose)
 make smoke        # run end-to-end smoke checks
 make test-github  # send signed GitHub test payload
 make doctor       # diagnose configuration/runtime issues
+make bench-local  # lightweight local reliability benchmark
 make down         # stop services
 ```
 
@@ -197,6 +198,17 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
   - check for empty numeric env values
 - GitHub webhook 401 invalid signature:
   - webhook secret in GitHub must exactly match `GITHUB_WEBHOOK_SECRET`
+- Vercel deploy works but webhook behavior looks stale:
+  - confirm env vars were saved to the correct Vercel environment (Production/Preview/Development)
+  - redeploy after env changes; serverless runtime does not always pick up edits until a new deployment
+- Duplicate events or replay instability on serverless:
+  - use Redis-backed state (`STORAGE_BACKEND=redis`, `RATE_LIMIT_BACKEND=redis`) for shared idempotency/rate-limit state
+- Replay guard seems to block valid retries:
+  - ensure each replay/test has a unique delivery ID and avoid reusing the same request payload + ID tuple
+- Admin endpoints unexpectedly return 401 in key migration:
+  - if `ADMIN_API_KEYS` is set, it overrides legacy `ADMIN_API_KEY`; keep one mode active
+- `docker compose` starts wrong project/network names from another directory:
+  - run with explicit project directory/context, e.g. `docker compose --project-directory . -f deploy/docker-compose.yml --env-file .env up -d`
 
 ### `make doctor` quick fixes
 
@@ -208,6 +220,24 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
   - Fix: add `- ADMIN_API_KEY=${ADMIN_API_KEY}` under `webhook-bridge.environment` in `deploy/docker-compose.yml`
 - Doctor reports **container key mismatch**
   - Fix: `docker compose -f deploy/docker-compose.yml down && docker compose -f deploy/docker-compose.yml --env-file .env up -d --force-recreate`
+
+---
+
+## Proof of reliability (local benchmark)
+
+Run a lightweight, reproducible local benchmark against `/health`:
+
+```bash
+make bench-local
+```
+
+Custom run example:
+
+```bash
+python3 scripts/benchmark_local.py --url http://127.0.0.1:8000/health --requests 300 --concurrency 20
+```
+
+Output includes total requests, success rate, and latency summary (avg/p95/max).
 
 ---
 

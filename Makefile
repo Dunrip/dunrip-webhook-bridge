@@ -1,4 +1,4 @@
-.PHONY: setup wizard up smoke test-github first-run doctor down release
+.PHONY: setup wizard up smoke test-github first-run doctor bench-local down release
 
 COMPOSE_FILE ?= deploy/docker-compose.yml
 PROJECT_DIR ?= .
@@ -23,6 +23,9 @@ first-run: wizard up smoke
 
 doctor:
 	./scripts/doctor.sh
+
+bench-local:
+	python3 ./scripts/benchmark_local.py
 
 down:
 	$(COMPOSE) down
