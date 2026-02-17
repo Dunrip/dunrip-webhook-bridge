@@ -4,6 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 
 case "$ENV_FILE" in
   /*) ;;
@@ -24,13 +25,14 @@ require_var() {
     ok "$key is set"
   else
     err "$key is missing"
+    echo "   Fix: run 'make wizard' and set $key"
   fi
 }
 
 check_empty_numeric() {
   key="$1"
   default="$2"
-  if grep -Eq "^[[:space:]]*$key=[[:space:]]*$" "$ENV_FILE"; then
+  if [ -f "$ENV_FILE" ] && grep -Eq "^[[:space:]]*$key=[[:space:]]*$" "$ENV_FILE"; then
     warn "$key is present but empty in .env (runtime default: $default). Set an explicit value or remove the line."
   fi
 }
@@ -38,11 +40,26 @@ check_empty_numeric() {
 echo "Webhook Bridge Doctor"
 echo "Project root: $PROJECT_ROOT"
 
+# Docker checks
+if ! command -v docker >/dev/null 2>&1; then
+  err "docker is not installed"
+  echo "   Fix: install Docker Desktop, then run 'make up'"
+else
+  ok "docker command found"
+  if docker info >/dev/null 2>&1; then
+    ok "docker daemon is reachable"
+  else
+    err "docker daemon is not reachable"
+    echo "   Fix: start Docker Desktop (or daemon), then retry"
+  fi
+fi
+
+# .env checks
 if [ -f "$ENV_FILE" ]; then
   ok ".env found at $ENV_FILE"
 else
   err ".env not found at $ENV_FILE"
-  echo "   Hint: run 'make setup' or 'make wizard', or set ENV_FILE=/path/to/.env"
+  echo "   Fix: run 'make setup' or 'make wizard', or set ENV_FILE=/path/to/.env"
 fi
 
 if [ -f "$ENV_FILE" ]; then
@@ -60,11 +77,13 @@ if [ -f "$ENV_FILE" ]; then
     ok "Scoped admin key config detected (ADMIN_API_KEYS*)"
     if [ -n "${ADMIN_API_KEY:-}" ]; then
       warn "Both ADMIN_API_KEYS* and ADMIN_API_KEY are set. Scoped keys take precedence over legacy ADMIN_API_KEY."
+      echo "   Fix: remove stale ADMIN_API_KEY from .env to avoid confusion"
     fi
   elif [ -n "${ADMIN_API_KEY:-}" ]; then
     ok "Legacy ADMIN_API_KEY is set"
   else
     err "Missing admin auth config. Set ADMIN_API_KEYS (preferred) or ADMIN_API_KEY."
+    echo "   Fix: run 'make wizard' and add at least one admin key"
   fi
 
   check_empty_numeric ADMIN_KEY_ROTATION_GRACE_SECONDS 604800
@@ -83,28 +102,43 @@ if [ -f "$ENV_FILE" ]; then
   check_empty_numeric MAX_REPLAY_ATTEMPTS 10
 fi
 
-if command -v docker >/dev/null 2>&1; then
+# Compose + runtime mismatch checks
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   if docker compose -f "$PROJECT_ROOT/docker-compose.yml" config >/tmp/webhook-bridge-compose-doctor.txt 2>/tmp/webhook-bridge-compose-doctor.err; then
     if grep -q "ADMIN_API_KEY:" /tmp/webhook-bridge-compose-doctor.txt; then
       ok "docker compose config includes ADMIN_API_KEY mapping"
     else
       err "docker compose config is missing ADMIN_API_KEY mapping"
+      echo "   Fix: add ADMIN_API_KEY env mapping under webhook-bridge service"
     fi
 
-    if docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps -q webhook-bridge >/dev/null 2>&1 && [ -n "$(docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps -q webhook-bridge)" ]; then
-      cid=$(docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps -q webhook-bridge)
+    cid=$(docker compose -f "$PROJECT_ROOT/docker-compose.yml" ps -q webhook-bridge || true)
+    if [ -n "$cid" ]; then
       runtime_admin=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$cid" | awk -F= '$1=="ADMIN_API_KEY" {sub(/^ADMIN_API_KEY=/, "", $0); print $0}')
       if [ -n "${ADMIN_API_KEY:-}" ] && [ -n "$runtime_admin" ] && [ "$runtime_admin" != "$ADMIN_API_KEY" ]; then
-        warn "Running container ADMIN_API_KEY differs from .env. Recreate container: docker compose up -d --force-recreate"
+        warn "Running container ADMIN_API_KEY differs from .env."
+        echo "   Fix: docker compose up -d --force-recreate webhook-bridge"
+      else
+        ok "No ADMIN_API_KEY runtime mismatch detected"
+      fi
+
+      health_code=$(curl -sS -o /tmp/webhook-bridge-health-doctor.json -w "%{http_code}" "$BASE_URL/health" || true)
+      if [ "$health_code" = "200" ]; then
+        ok "/health reachable at $BASE_URL/health"
+      else
+        err "webhook-bridge container is running but /health is not reachable (HTTP $health_code)"
+        echo "   Fix: check logs with 'docker compose logs -f webhook-bridge'"
+        echo "   Fix: confirm port mapping and BASE_URL (current: $BASE_URL)"
       fi
     else
-      warn "webhook-bridge container is not running; runtime env mismatch checks skipped"
+      warn "webhook-bridge container is not running; runtime checks and /health reachability skipped"
+      echo "   Hint: start service with 'make up'"
     fi
   else
-    warn "docker compose config check failed: $(cat /tmp/webhook-bridge-compose-doctor.err)"
+    err "docker compose config check failed"
+    echo "   Details: $(cat /tmp/webhook-bridge-compose-doctor.err)"
+    echo "   Fix: validate docker-compose.yml and .env variable interpolation"
   fi
-else
-  warn "docker not found; compose checks skipped"
 fi
 
 if [ "$errors" -gt 0 ]; then
