@@ -2,32 +2,82 @@
 
 Production-ready FastAPI service for forwarding GitHub and generic webhooks to Telegram.
 
-## Quick Start (2 minutes)
+## Beginner Quickstart (Dead Simple)
 
-### 1) Configure environment
+### 1) Install Docker
+Install Docker Desktop (Mac/Windows) or Docker Engine + Compose plugin (Linux), then make sure Docker is running.
+
+### 2) Run one command
 ```bash
-make setup
-# If setup reports missing values, run:
-make wizard
+make first-run
 ```
 
-### 2) Start with Docker
-```bash
-make up
+This runs, in order:
+1. `make wizard` (interactive `.env` setup)
+2. `make up` (start service)
+3. `make smoke` (sanity checks)
+
+### 3) Paste webhook settings in GitHub
+Use these exact values in GitHub → Settings → Webhooks:
+
+- **Payload URL**: `https://<your-domain>/webhook/github`
+- **Content type**: `application/json`
+- **Secret**: value of `GITHUB_WEBHOOK_SECRET` in your `.env`
+- **Recommended events**: Pushes, Pull requests, Issues, Releases, Workflow runs
+
+Tip: run `make test-github` to send a signed sample webhook and verify setup end-to-end.
+
+---
+
+## Copy-paste Payload URL templates
+
+### VPS / self-hosted (public domain)
+```text
+https://your-domain.com/webhook/github
 ```
 
-### 3) Run smoke checks
-```bash
-make smoke
+### Render
+```text
+https://your-service-name.onrender.com/webhook/github
 ```
 
-If all checks pass, your bridge is up.
+### Local tunnel (ngrok / cloudflared)
+```text
+https://your-random-subdomain.ngrok-free.app/webhook/github
+```
+
+---
+
+## Top 5 setup mistakes (and fixes)
+
+1. **Docker installed but daemon not running**
+   - Symptom: `make up` fails to connect to Docker.
+   - Fix: start Docker Desktop/daemon, then retry.
+
+2. **Missing or placeholder values in `.env`**
+   - Symptom: startup or doctor errors for required vars.
+   - Fix: run `make wizard` and fill real values.
+
+3. **GitHub signature failures (401)**
+   - Symptom: webhook deliveries fail with invalid signature.
+   - Fix: GitHub webhook Secret must exactly match `GITHUB_WEBHOOK_SECRET`.
+
+4. **Admin key confusion (scoped vs legacy)**
+   - Symptom: auth behaves unexpectedly.
+   - Fix: `ADMIN_API_KEYS*` takes precedence over `ADMIN_API_KEY`; remove stale legacy key.
+
+5. **Service running but health checks fail**
+   - Symptom: `make smoke` fails on `/health` or `/health/deep`.
+   - Fix: verify `BASE_URL`, then inspect logs: `docker compose logs -f webhook-bridge`.
+
+For a full diagnosis, run:
+```bash
+make doctor
+```
 
 ---
 
 ## Minimal Mode (GitHub -> Telegram only)
-
-Minimal mode is the fastest onboarding path: only GitHub events forwarded to Telegram.
 
 Required `.env` values:
 - `TELEGRAM_BOT_TOKEN`
@@ -36,46 +86,22 @@ Required `.env` values:
 - `ADMIN_API_KEYS` (preferred, scoped) **or** legacy `ADMIN_API_KEY`
 - `GENERIC_WEBHOOK_TOKEN` (required by current app config; keep a random value if generic route is unused)
 
-### GitHub webhook values (exact)
-- **Payload URL**: `https://<your-domain>/webhook/github`
-- **Content type**: `application/json`
-- **Secret**: value of `GITHUB_WEBHOOK_SECRET`
-- **Events**: Pushes, Pull requests, Issues, Releases, Workflow runs
-
-Tip: `make wizard` prints these values again after setup.
-
 ---
 
 ## Required environment variables (what they are + how to get them)
 
-Use this as a quick reference when filling `.env`.
-
 - `TELEGRAM_BOT_TOKEN`
-  - What it is: your Telegram bot API token.
-  - How to get it: create a bot with [@BotFather](https://t.me/BotFather), then copy the token.
-
+  - Telegram bot API token from [@BotFather](https://t.me/BotFather).
 - `TELEGRAM_CHAT_ID`
-  - What it is: target chat/group/channel ID where notifications are sent.
-  - How to get it:
-    1. Send a message to your bot.
-    2. Open `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates`
-    3. Read `chat.id` from response.
-
+  - Target chat/group/channel ID.
+  - Retrieve from: `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates`
 - `GITHUB_WEBHOOK_SECRET`
-  - What it is: shared secret for GitHub webhook signature verification.
-  - How to get it: generate your own random secret (example below), then paste the same value in both `.env` and GitHub Webhook "Secret" field.
-
+  - Shared secret for GitHub signature verification.
 - `GENERIC_WEBHOOK_TOKEN`
-  - What it is: token for `POST /webhook/generic` (custom/non-GitHub senders).
-  - How to get it: generate your own random secret. Keep it random even if you don’t use generic webhooks yet.
-
-- Admin auth (choose one approach)
-  - Preferred (scoped):
-    - `ADMIN_API_KEYS` (or rotation pair `ADMIN_API_KEYS_ACTIVE` / `ADMIN_API_KEYS_PREVIOUS`)
-    - Format: `key1:read,key2:replay,key3:admin`
-  - Legacy (simple):
-    - `ADMIN_API_KEY`
-  - Purpose: protects admin/replay endpoints and `/stream/logs`.
+  - Token for `POST /webhook/generic`.
+- Admin auth (choose one):
+  - Preferred scoped keys: `ADMIN_API_KEYS` (or `ADMIN_API_KEYS_ACTIVE` / `ADMIN_API_KEYS_PREVIOUS`)
+  - Legacy key: `ADMIN_API_KEY`
 
 Generate a strong secret quickly:
 
@@ -87,81 +113,13 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ## Render Deployment (recommended)
 
-Use the included blueprint:
-
 1. Push repo to GitHub.
 2. In Render: **New + -> Blueprint**.
 3. Select this repo (Render reads `render.yaml`).
-4. Set required env vars in Render:
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-   - `GITHUB_WEBHOOK_SECRET`
-   - `GENERIC_WEBHOOK_TOKEN`
-   - `ADMIN_API_KEYS` (preferred) or `ADMIN_API_KEY` (legacy)
-5. Deploy.
-6. Confirm health check passes at `/health`.
+4. Set required env vars in Render.
+5. Deploy and confirm `/health`.
 
 Optional Redis is documented in `render.yaml` comments and `docs/deploy-render.md`.
-
----
-
-## Post-deploy smoke checks
-
-Run locally against your deployed URL:
-
-```bash
-BASE_URL="https://your-render-service.onrender.com" ./scripts/smoke-test.sh
-```
-
-Checks performed:
-- `GET /health`
-- `GET /health/deep`
-- `GET /metrics`
-- Signed GitHub `ping` webhook to `/webhook/github`
-- Optional admin auth checks for `/deliveries`
-
----
-
-## Common setup mistakes (and exact fixes)
-
-- **`make setup` reports missing vars**
-  - Fix: run `make wizard` and fill required values.
-
-- **`/health/deep` returns 503**
-  - Cause: Telegram token invalid or Telegram API unreachable.
-  - Fix: verify `TELEGRAM_BOT_TOKEN`, then redeploy/restart.
-
-- **GitHub webhook returns 401 invalid signature**
-  - Cause: GitHub secret != `GITHUB_WEBHOOK_SECRET`.
-  - Fix: set same secret in GitHub webhook settings and `.env`/Render.
-
-- **Admin endpoint returns 401**
-  - Cause: missing/invalid key, expired previous key, or wrong scope.
-  - Fix: send `X-API-Key` (or `Authorization: Bearer ...`) using a key from `ADMIN_API_KEYS`/`ADMIN_API_KEYS_ACTIVE` with required scope.
-
-- **Admin endpoint returns 403**
-  - Cause: key scope is insufficient for endpoint.
-  - Fix: use a `replay`/`admin` scoped key for replay endpoints, and `admin` key for `/stream/logs`.
-
-- **Admin endpoint returns 503**
-  - Cause: no admin key configuration found.
-  - Fix: set `ADMIN_API_KEYS` (preferred) or legacy `ADMIN_API_KEY` and restart.
-
-- **Confusing admin auth when both legacy/scoped keys exist**
-  - Cause: `ADMIN_API_KEYS`, `ADMIN_API_KEYS_ACTIVE`, and `ADMIN_API_KEYS_PREVIOUS` take precedence over `ADMIN_API_KEY`.
-  - Fix: prefer scoped keys; remove stale `ADMIN_API_KEY` to avoid confusion.
-
-- **Startup crash or validation error from numeric env vars**
-  - Cause: numeric keys set to empty strings (for example `ADMIN_KEY_ROTATION_GRACE_SECONDS=`).
-  - Fix: remove empty numeric lines or set explicit values. Empty values now fall back to defaults, but explicit values are safer.
-
-- **Smoke test fails to load env from another cwd**
-  - Cause: running `scripts/smoke-test.sh` outside project root.
-  - Fix: script now resolves `.env` from project root automatically. Override with `ENV_FILE=/path/to/.env` if needed.
-
-- **Need quick setup diagnostics**
-  - Run: `make doctor`
-  - It validates `.env`, key precedence, numeric pitfalls, and compose env mapping.
 
 ---
 

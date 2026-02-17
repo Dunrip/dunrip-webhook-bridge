@@ -1,4 +1,4 @@
-.PHONY: setup wizard up smoke doctor down
+.PHONY: setup wizard up smoke test-github first-run doctor down
 
 setup:
 	./scripts/bootstrap.sh
@@ -11,6 +11,11 @@ up:
 
 smoke:
 	./scripts/smoke-test.sh
+
+test-github:
+	./scripts/test-github.sh
+
+first-run: wizard up smoke
 
 doctor:
 	./scripts/doctor.sh

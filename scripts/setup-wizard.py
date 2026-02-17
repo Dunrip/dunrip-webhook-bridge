@@ -100,11 +100,12 @@ def main() -> int:
     ENV_PATH.write_text(merged, encoding='utf-8')
 
     print('\n✅ .env updated successfully.')
-    print('\nGitHub webhook settings:')
-    print('  URL: https://<your-domain>/webhook/github')
+    print('\nCopy-paste these GitHub Webhook values:')
+    print('  Payload URL template: https://<your-domain>/webhook/github')
     print('  Content type: application/json')
-    print(f"  Secret: {updates['GITHUB_WEBHOOK_SECRET']}")
-    print('  Events: Pushes, Pull requests, Issues, Releases, Workflow runs')
+    print('  Secret source: value of GITHUB_WEBHOOK_SECRET in your .env file')
+    print(f"  Current GITHUB_WEBHOOK_SECRET: {updates['GITHUB_WEBHOOK_SECRET']}")
+    print('  Recommended events: Pushes, Pull requests, Issues, Releases, Workflow runs')
     print('\nNext steps: make up && make smoke')
 
     return 0
