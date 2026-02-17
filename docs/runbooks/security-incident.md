@@ -8,7 +8,7 @@ Use this runbook for suspected compromise, abuse, or forgery affecting webhook i
    - Open an incident channel and assign incident commander.
 2. **Contain immediately**
    - Rotate leaked keys/secrets at the provider and in deployment env:
-     - `ADMIN_API_KEY`
+     - `ADMIN_API_KEYS` / `ADMIN_API_KEYS_ACTIVE` / `ADMIN_API_KEYS_PREVIOUS` (and `ADMIN_API_KEY` if still used)
      - `TELEGRAM_BOT_TOKEN`
      - `GITHUB_WEBHOOK_SECRET`
      - `GENERIC_WEBHOOK_TOKEN`
@@ -35,7 +35,7 @@ Use this runbook for suspected compromise, abuse, or forgery affecting webhook i
      - Lower `MAX_REPLAY_ATTEMPTS` if necessary
    - Block abusive IPs at WAF/reverse proxy.
 3. **Eradicate**
-   - Rotate `ADMIN_API_KEY` if abuse involved valid credentials.
+   - Rotate admin credentials (`ADMIN_API_KEYS*`, and `ADMIN_API_KEY` if used) if abuse involved valid credentials.
    - Investigate idempotency key usage and duplicate request patterns.
 4. **Recover**
    - Restore safe baseline limits after abuse subsides.

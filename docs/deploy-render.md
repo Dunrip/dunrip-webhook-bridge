@@ -12,7 +12,10 @@ This project includes a Render blueprint (`render.yaml`) and is optimized for we
    - `TELEGRAM_CHAT_ID`
    - `GITHUB_WEBHOOK_SECRET`
    - `GENERIC_WEBHOOK_TOKEN`
-   - `ADMIN_API_KEY`
+   - `ADMIN_API_KEYS` (recommended; supports single key or scoped CSV)
+     - single key example: `ADMIN_API_KEYS=my-admin-key`
+     - scoped example: `ADMIN_API_KEYS=read-key:read,replay-key:replay,admin-key:admin`
+   - optional legacy fallback: `ADMIN_API_KEY`
 5. Deploy and wait until health check `/health` is green.
 
 ## Configure GitHub webhook
