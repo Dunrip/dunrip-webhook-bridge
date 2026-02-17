@@ -128,6 +128,17 @@ Admin endpoints (require admin auth):
 - GitHub webhook 401 invalid signature:
   - webhook secret in GitHub must exactly match `GITHUB_WEBHOOK_SECRET`
 
+### `make doctor` quick fixes
+
+- Doctor says **`.env not found`**
+  - Fix: `cp .env.example .env && make wizard`
+- Doctor warns **scoped keys override legacy key**
+  - Fix: keep one mode only (preferred scoped keys, or remove `ADMIN_API_KEYS*` to use legacy `ADMIN_API_KEY`)
+- Doctor says **docker compose mapping missing ADMIN_API_KEY**
+  - Fix: add `- ADMIN_API_KEY=${ADMIN_API_KEY}` under `webhook-bridge.environment` in `docker-compose.yml`
+- Doctor reports **container key mismatch**
+  - Fix: `docker compose down && docker compose --env-file .env up -d --force-recreate`
+
 ---
 
 ## License

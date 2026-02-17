@@ -27,7 +27,7 @@ from models import GenericWebhookPayload
 from replay import router as replay_router
 from routing import load_routes, route_event
 from sandbox import router as sandbox_router
-from security import verify_generic_token, verify_github_signature
+from security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
 from storage import Redis, RedisError, Storage, create_storage_backend
 from tg_client import TelegramSendError, format_generic, send_message
 from websocket import broadcaster, router as ws_router
@@ -131,6 +131,11 @@ def _get_storage(request: Request) -> Storage:
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown resources for the FastAPI app."""
     _initialize_app_state(app)
+
+    auth_mode, auth_warning = describe_admin_auth_mode()
+    logger.info("admin_auth_mode mode=%s", auth_mode)
+    if auth_warning:
+        logger.warning("admin_auth_mode_warning %s", auth_warning)
 
     try:
         yield
