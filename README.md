@@ -186,9 +186,6 @@ make down         # stop services
 
 ---
 
-## Planning & Execution
-
-- 90-day execution tracker: [`docs/90-day-score-plan.md`](docs/90-day-score-plan.md)
 
 ## Deployment
 
