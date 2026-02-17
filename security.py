@@ -226,8 +226,8 @@ def describe_admin_auth_mode() -> tuple[str, str | None]:
     warning: str | None = None
     if (has_scoped or has_active or has_previous) and has_legacy:
         warning = (
-            "Both scoped admin key vars and legacy ADMIN_API_KEY are set; "
-            "scoped configuration takes precedence."
+            "Conflicting admin auth env vars detected: ADMIN_API_KEYS* and ADMIN_API_KEY are both set. "
+            "The service will use ADMIN_API_KEYS*. Remove ADMIN_API_KEY (recommended) or clear ADMIN_API_KEYS* to use legacy mode."
         )
 
     if has_active:

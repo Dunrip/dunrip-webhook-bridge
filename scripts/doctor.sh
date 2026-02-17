@@ -76,8 +76,9 @@ if [ -f "$ENV_FILE" ]; then
   if [ -n "${ADMIN_API_KEYS_ACTIVE:-}" ] || [ -n "${ADMIN_API_KEYS_PREVIOUS:-}" ] || [ -n "${ADMIN_API_KEYS:-}" ]; then
     ok "Scoped admin key config detected (ADMIN_API_KEYS*)"
     if [ -n "${ADMIN_API_KEY:-}" ]; then
-      warn "Both ADMIN_API_KEYS* and ADMIN_API_KEY are set. Scoped keys take precedence over legacy ADMIN_API_KEY."
-      echo "   Fix: remove stale ADMIN_API_KEY from .env to avoid confusion"
+      warn "Conflicting admin auth vars: ADMIN_API_KEYS* and ADMIN_API_KEY are both set. Runtime will use scoped keys."
+      echo "   Fix: keep one mode only. Recommended: remove ADMIN_API_KEY from .env"
+      echo "   Alternative: clear ADMIN_API_KEYS* if you intentionally want legacy ADMIN_API_KEY mode"
     fi
   elif [ -n "${ADMIN_API_KEY:-}" ]; then
     ok "Legacy ADMIN_API_KEY is set"

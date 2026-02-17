@@ -134,6 +134,15 @@ async def lifespan(app: FastAPI):
 
     auth_mode, auth_warning = describe_admin_auth_mode()
     logger.info("admin_auth_mode mode=%s", auth_mode)
+    logger.info(
+        "startup_summary auth_mode=%s storage_backend=%s rate_limit_backend=%s routes_configured=%s circuit_breaker_threshold=%s retries=%s",
+        auth_mode,
+        settings.storage_backend,
+        settings.rate_limit_backend,
+        bool((settings.routes_yaml or "").strip()),
+        settings.circuit_breaker_threshold,
+        settings.telegram_retries,
+    )
     if auth_warning:
         logger.warning("admin_auth_mode_warning %s", auth_warning)
 
