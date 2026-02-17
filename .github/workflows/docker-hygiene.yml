@@ -1,0 +1,21 @@
+name: Docker - Hygiene Guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  docker-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate .dockerignore contains sensitive patterns
+        run: |
+          test -f .dockerignore || { echo "Missing .dockerignore"; exit 1; }
+          grep -Eq '^\.env$' .dockerignore || { echo "Missing .env ignore rule"; exit 1; }
+          grep -Eq '^\.git$|^\.git/$' .dockerignore || { echo "Missing .git ignore rule"; exit 1; }
+          echo "✅ .dockerignore contains required sensitive patterns"
