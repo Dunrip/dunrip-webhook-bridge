@@ -24,6 +24,27 @@ Security updates are provided for:
 
 Older versions may not receive fixes.
 
+## Remediation SLA (Severity-Based Targets)
+
+Target response windows after a validated report:
+
+- **Critical** (RCE, auth bypass, secret exposure with active risk)
+  - Acknowledge: **within 24 hours**
+  - Mitigation/fix plan: **within 72 hours**
+  - Patch release target: **within 7 days**
+- **High** (major privilege escalation, data exposure without active exploitation)
+  - Acknowledge: **within 2 business days**
+  - Fix plan: **within 5 business days**
+  - Patch release target: **within 14 days**
+- **Medium**
+  - Acknowledge: **within 5 business days**
+  - Fix target: **within 30 days**
+- **Low**
+  - Acknowledge: **within 10 business days**
+  - Fix target: **next planned maintenance release**
+
+If timelines cannot be met, maintainers will publish a status update (risk, workaround, revised ETA).
+
 ## Existing Security Controls
 
 This project includes several built-in protections, including:

@@ -46,7 +46,8 @@ pytest
 1. Create a branch for your change.
 2. Keep commits focused and descriptive.
 3. Add or update tests when applicable.
-4. Open a pull request with:
+4. Use CI triage checklist for failures: [`docs/ops/ci-failure-triage.md`](docs/ops/ci-failure-triage.md)
+5. Open a pull request with:
    - What changed
    - Why it changed
    - How it was tested
