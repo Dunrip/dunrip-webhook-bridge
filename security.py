@@ -209,6 +209,36 @@ def _resolve_admin_keys() -> tuple[dict[str, str], dict[str, str]]:
     return {}, {}
 
 
+def describe_admin_auth_mode() -> tuple[str, str | None]:
+    """Return active admin auth mode and optional warning.
+
+    Modes:
+    - scoped-rotation: ADMIN_API_KEYS_ACTIVE (and optional PREVIOUS)
+    - scoped: ADMIN_API_KEYS
+    - legacy: ADMIN_API_KEY
+    - unconfigured: no admin key present
+    """
+    has_legacy = bool((settings.admin_api_key or "").strip())
+    has_scoped = bool((settings.admin_api_keys or "").strip())
+    has_active = bool((settings.admin_api_keys_active or "").strip())
+    has_previous = bool((settings.admin_api_keys_previous or "").strip())
+
+    warning: str | None = None
+    if (has_scoped or has_active or has_previous) and has_legacy:
+        warning = (
+            "Both scoped admin key vars and legacy ADMIN_API_KEY are set; "
+            "scoped configuration takes precedence."
+        )
+
+    if has_active:
+        return "scoped-rotation", warning
+    if has_scoped:
+        return "scoped", warning
+    if has_legacy:
+        return "legacy", warning
+    return "unconfigured", warning
+
+
 def authenticate_admin_api_key_headers(headers: Mapping[str, str], *, required_scope: str = "admin") -> AdminAuthResult:
     provided = _extract_api_key(headers.get("authorization"), headers.get("x-api-key"))
     actor_key_id = fingerprint_api_key(provided)
