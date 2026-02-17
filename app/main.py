@@ -506,8 +506,9 @@ def create_app() -> FastAPI:
                 DLQ_GROWTH_TOTAL.labels(reason="partial_delivery_failure").inc()
                 await storage.store_failed_delivery(
                     source="generic", event_type="generic",
-                    payload=payload_dict, headers={},
+                    payload=payload_dict, headers={"x-request-id": generic_delivery_id},
                     error="Partial delivery failure",
+                    delivery_id=generic_delivery_id,
                 )
 
             status = "success" if any_sent else ("delivery_failed" if any_failed else "ignored")
@@ -546,8 +547,9 @@ def create_app() -> FastAPI:
                 source="generic",
                 event_type="generic",
                 payload=payload_dict,
-                headers={},
+                headers={"x-request-id": generic_delivery_id},
                 error=str(exc),
+                delivery_id=generic_delivery_id,
             )
             DLQ_GROWTH_TOTAL.labels(reason="delivery_failed").inc()
             RETRY_TOTAL.labels(classification="network").inc()

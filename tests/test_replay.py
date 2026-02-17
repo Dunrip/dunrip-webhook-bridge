@@ -59,8 +59,9 @@ def _seed_failures(storage: MemoryStorage) -> list[str]:
         source="generic",
         event_type="generic",
         payload={"title": "Deploy", "body": "Failed deploy"},
-        headers={},
+        headers={"x-request-id": "gen-del-1"},
         error="Telegram rate limited",
+        delivery_id="gen-del-1",
     ))
     ids.append(fid)
 
@@ -366,11 +367,11 @@ def test_replay_cooldown_enforced(monkeypatch) -> None:
     storage = client.app.state.storage
     ids = _seed_failures(storage)
 
-    async def ok_send(_: str) -> None:
-        return None
+    async def fail_send(_: str) -> None:
+        raise TelegramSendError("still failing")
 
     import app.api.replay as replay
-    monkeypatch.setattr(replay, "send_message", ok_send)
+    monkeypatch.setattr(replay, "send_message", fail_send)
 
     first = client.post(f"/deliveries/{ids[0]}/replay")
     assert first.status_code == 200
@@ -459,3 +460,38 @@ def test_replay_safety_blocks_already_delivered_ledger(monkeypatch) -> None:
     response = client.post(f"/deliveries/{ids[0]}/replay")
     assert response.status_code == 409
     assert response.json()["error"] == "replay_already_delivered"
+
+
+def test_replay_generic_safety_blocks_already_delivered_ledger(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    import asyncio
+    generic_record = storage.failed_deliveries[ids[1]]
+    generic_delivery_id = generic_record["delivery_id"]
+    asyncio.run(storage.upsert_delivery_ledger("generic", generic_delivery_id, "hash-x", "delivered"))
+
+    response = client.post(f"/deliveries/{ids[1]}/replay")
+    assert response.status_code == 409
+    assert response.json()["error"] == "replay_already_delivered"
+
+
+def test_replay_updates_ledger_to_delivered(monkeypatch) -> None:
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def ok_send(_: str) -> None:
+        return None
+
+    import asyncio
+    import app.api.replay as replay
+    monkeypatch.setattr(replay, "send_message", ok_send)
+    asyncio.run(storage.upsert_delivery_ledger("github", "gh-del-1", "hash-x", "failed", "delivery_failed"))
+
+    response = client.post(f"/deliveries/{ids[0]}/replay")
+    assert response.status_code == 200
+    ledger = asyncio.run(storage.get_delivery_ledger("github", "gh-del-1"))
+    assert ledger is not None
+    assert ledger["status"] == "delivered"
