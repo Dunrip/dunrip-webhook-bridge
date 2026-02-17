@@ -1,6 +1,8 @@
 services:
   webhook-bridge:
-    build: .
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
     container_name: webhook-bridge
     ports:
       - "8000:8000"

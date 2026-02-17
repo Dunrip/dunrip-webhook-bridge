@@ -19,12 +19,12 @@ symptom_help() {
     health)
       echo "  - Start service: make up"
       echo "  - Verify BASE_URL (current: $BASE_URL)"
-      echo "  - Check logs: docker compose logs -f webhook-bridge"
+      echo "  - Check logs: docker compose -f deploy/docker-compose.yml logs -f webhook-bridge"
       ;;
     deep)
       echo "  - Verify TELEGRAM_BOT_TOKEN in .env"
       echo "  - Check outbound network access to Telegram API"
-      echo "  - Re-run after restart: docker compose restart webhook-bridge"
+      echo "  - Re-run after restart: docker compose -f deploy/docker-compose.yml restart webhook-bridge"
       ;;
     metrics)
       echo "  - Ensure app started correctly and metrics endpoint is enabled"
@@ -32,7 +32,7 @@ symptom_help() {
       ;;
     github)
       echo "  - Ensure GITHUB_WEBHOOK_SECRET in .env is set and non-empty"
-      echo "  - Recreate service to apply env changes: docker compose up -d --force-recreate webhook-bridge"
+      echo "  - Recreate service to apply env changes: docker compose -f deploy/docker-compose.yml up -d --force-recreate webhook-bridge"
       echo "  - Verify endpoint path /webhook/github"
       ;;
     admin)

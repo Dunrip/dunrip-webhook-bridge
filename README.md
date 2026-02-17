@@ -16,7 +16,7 @@
 Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
 
 > **Code layout note:** Canonical runtime modules now live under `app/` (for example `app/main.py`).
-> Root-level module files are temporary compatibility shims and will be removed in a later cleanup.
+> Root-level module files are temporary compatibility shims and will be removed in a later cleanup. See [`SHIMS.md`](SHIMS.md).
 
 ---
 
@@ -149,8 +149,10 @@ make down         # stop services
 ## Deployment
 
 - **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
-- Render deployment is supported via `render.yaml` — see [`docs/deploy-render.md`](docs/deploy-render.md)
+- Render deployment is supported via `deploy/render.yaml` — see [`docs/deploy-render.md`](docs/deploy-render.md)
 - **Best long-running ops:** Docker + reverse proxy with HTTPS on VPS/self-hosted
+
+Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `docker-compose.yml`, `render.yaml`, `prometheus.yml`, canonical `vercel.json`). A root `vercel.json` is intentionally kept as a compatibility shim for Vercel auto-detection.
 
 ---
 
@@ -180,9 +182,9 @@ make down         # stop services
 - Doctor warns **scoped keys override legacy key**
   - Fix: keep one mode only (preferred scoped keys, or remove `ADMIN_API_KEYS*` to use legacy `ADMIN_API_KEY`)
 - Doctor says **docker compose mapping missing ADMIN_API_KEY**
-  - Fix: add `- ADMIN_API_KEY=${ADMIN_API_KEY}` under `webhook-bridge.environment` in `docker-compose.yml`
+  - Fix: add `- ADMIN_API_KEY=${ADMIN_API_KEY}` under `webhook-bridge.environment` in `deploy/docker-compose.yml`
 - Doctor reports **container key mismatch**
-  - Fix: `docker compose down && docker compose --env-file .env up -d --force-recreate`
+  - Fix: `docker compose -f deploy/docker-compose.yml down && docker compose -f deploy/docker-compose.yml --env-file .env up -d --force-recreate`
 
 ---
 
