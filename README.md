@@ -139,6 +139,9 @@ make up           # start services (docker compose)
 make smoke        # run end-to-end smoke checks
 make test-github  # send signed GitHub test payload
 make doctor       # diagnose configuration/runtime issues
+make benchmark    # local reliability benchmark (latency/error-rate)
+make benchmark-baseline BASELINE=.benchmarks/local-baseline.json
+make benchmark-compare BASELINE=.benchmarks/local-baseline.json
 make down         # stop services
 ```
 
@@ -168,6 +171,10 @@ make down         # stop services
 
 ---
 
+## Planning & Execution
+
+- 90-day execution tracker: [`docs/90-day-score-plan.md`](docs/90-day-score-plan.md)
+
 ## Deployment
 
 - **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
@@ -185,6 +192,8 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
 - Use strong random secrets for all token/key fields
 - Prefer scoped admin keys over legacy single key
 - Keep CI security workflows enabled (dependency + secrets scanning)
+- Follow the CI failure triage checklist: [`docs/ops/ci-failure-triage.md`](docs/ops/ci-failure-triage.md)
+- Use benchmark baseline guardrails: [`docs/monitoring/reliability-benchmark.md`](docs/monitoring/reliability-benchmark.md)
 
 ---
 
