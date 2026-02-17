@@ -4,6 +4,7 @@
 [![Dependency Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml)
 [![Secrets Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml)
 [![Latest Release](https://img.shields.io/github/v/release/Dunrip/dunrip-webhook-bridge?display_name=tag)](https://github.com/Dunrip/dunrip-webhook-bridge/releases/latest)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge)
 
 > **Quickstart (3 commands)**
 >
