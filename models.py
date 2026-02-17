@@ -1,9 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from app.models import models as _m
 
-
-class GenericWebhookPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    title: str = Field(min_length=1, max_length=300)
-    body: str = Field(min_length=1, max_length=4000)
-    url: str | None = None
+globals().update({k: getattr(_m, k) for k in dir(_m) if not k.startswith('__')})
+__all__ = [k for k in dir(_m) if not k.startswith('__')]
