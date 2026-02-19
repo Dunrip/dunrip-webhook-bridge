@@ -5,7 +5,16 @@ import tempfile
 
 import pytest
 
-from app.services.routing import RouteFilter, Route, load_routes, route_event, _extract_branch
+from app.services.routing import (
+    RouteFilter,
+    Route,
+    _DESTINATION_REGISTRY,
+    _extract_branch,
+    _build_destination,
+    bootstrap_builtin_destinations,
+    load_routes,
+    route_event,
+)
 from destinations.base import Destination, DestinationError
 
 
@@ -146,6 +155,30 @@ routes:
 # ---------------------------------------------------------------------------
 # route_event
 # ---------------------------------------------------------------------------
+
+class TestDestinationBootstrap:
+    def test_builtin_destinations_registered(self):
+        registry = bootstrap_builtin_destinations()
+
+        assert registry.get("telegram") is not None
+        assert registry.get("discord") is not None
+        assert registry.get("slack") is not None
+
+    def test_build_destination_uses_registry_lookup(self, monkeypatch):
+        calls = []
+
+        def factory(**kwargs):
+            calls.append(kwargs)
+            return FakeDestination("from-registry")
+
+        monkeypatch.setattr(_DESTINATION_REGISTRY, "get", lambda name: factory if name == "x" else None)
+
+        dest = _build_destination("x")
+
+        assert isinstance(dest, FakeDestination)
+        assert dest.name == "from-registry"
+        assert calls == [{"http_client": None}]
+
 
 class FakeDestination(Destination):
     def __init__(self, name_val: str = "fake", should_fail: bool = False):
