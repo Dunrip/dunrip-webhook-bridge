@@ -20,6 +20,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 - Improved admin auth env conflict warnings with explicit fix paths.
+- Clarified `POST /deliveries/replay-all` contract as asynchronous acceptance (`status: accepted`, `queued`) with background processing.
 
 ### Docs
 - Added release checklist smoke verification expansion and operational guidance.
+- Added replay operations guide with replay-all semantics and verification workflow: `docs/ops/replay-operations.md`.
