@@ -165,14 +165,14 @@ class FakeDestination(Destination):
 
 class TestRouteEvent:
     @pytest.mark.asyncio
-    async def test_matching_route_sends(self, monkeypatch):
+    async def test_matching_telegram_route_sends(self, monkeypatch):
         dest = FakeDestination("telegram")
         monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: dest)
 
         routes = [Route(name="all", destination_name="telegram")]
         results = await route_event(routes, "hello", "push", {})
         assert len(results) == 1
-        assert results[0]["status"] == "sent"
+        assert results[0] == {"route": "all", "destination": "telegram", "status": "sent"}
         assert dest.sent_messages == ["hello"]
 
     @pytest.mark.asyncio
@@ -201,7 +201,17 @@ class TestRouteEvent:
 
         routes = [Route(name="r", destination_name="unknown")]
         results = await route_event(routes, "hello", "push", {})
-        assert results[0]["status"] == "skipped"
+        assert results[0] == {"route": "r", "destination": "unknown", "status": "skipped"}
+
+    @pytest.mark.asyncio
+    async def test_unknown_destination_skipped_and_warning_logged(self, caplog):
+        routes = [Route(name="unknown-route", destination_name="not-a-provider")]
+
+        with caplog.at_level("WARNING"):
+            results = await route_event(routes, "hello", "push", {})
+
+        assert results == [{"route": "unknown-route", "destination": "not-a-provider", "status": "skipped"}]
+        assert "Unknown destination" in caplog.text
 
     @pytest.mark.asyncio
     async def test_multiple_routes_multiple_destinations(self, monkeypatch):
@@ -220,3 +230,53 @@ class TestRouteEvent:
         results = await route_event(routes, "msg", "push", {})
         assert len(results) == 2
         assert all(r["status"] == "sent" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_mixed_routes_continue_when_one_destination_fails(self, monkeypatch):
+        dest_tg = FakeDestination("telegram")
+        dest_dc = FakeDestination("discord", should_fail=True)
+
+        def build(name, **kwargs):
+            return dest_tg if name == "telegram" else dest_dc
+
+        monkeypatch.setattr("app.services.routing._build_destination", build)
+
+        routes = [
+            Route(name="dc", destination_name="discord"),
+            Route(name="tg", destination_name="telegram"),
+        ]
+
+        results = await route_event(routes, "msg", "push", {})
+
+        assert results[0]["status"] == "failed"
+        assert results[1] == {"route": "tg", "destination": "telegram", "status": "sent"}
+        assert dest_tg.sent_messages == ["msg"]
+
+    @pytest.mark.asyncio
+    async def test_route_event_output_shape_contract(self, monkeypatch):
+        sent = FakeDestination("telegram")
+        failed = FakeDestination("discord", should_fail=True)
+
+        def build(name, **kwargs):
+            if name == "telegram":
+                return sent
+            if name == "discord":
+                return failed
+            return None
+
+        monkeypatch.setattr("app.services.routing._build_destination", build)
+
+        routes = [
+            Route(name="s", destination_name="telegram"),
+            Route(name="f", destination_name="discord"),
+            Route(name="k", destination_name="unknown"),
+        ]
+        results = await route_event(routes, "msg", "push", {})
+
+        assert results[0] == {"route": "s", "destination": "telegram", "status": "sent"}
+        assert set(results[1].keys()) == {"route", "destination", "status", "error"}
+        assert results[1]["route"] == "f"
+        assert results[1]["destination"] == "discord"
+        assert results[1]["status"] == "failed"
+        assert isinstance(results[1]["error"], str)
+        assert results[2] == {"route": "k", "destination": "unknown", "status": "skipped"}
