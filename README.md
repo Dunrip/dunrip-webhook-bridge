@@ -229,6 +229,32 @@ Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `do
 
 ---
 
+## Official Container Image (GHCR)
+
+Published image:
+
+- `ghcr.io/dunrip/dunrip-webhook-bridge:latest` (from `main`)
+- `ghcr.io/dunrip/dunrip-webhook-bridge:vX.Y.Z` (from version tags)
+- `ghcr.io/dunrip/dunrip-webhook-bridge:sha-<commit>`
+
+Pull and run:
+
+```bash
+docker pull ghcr.io/dunrip/dunrip-webhook-bridge:latest
+docker run --rm -p 8000:8000 --env-file .env ghcr.io/dunrip/dunrip-webhook-bridge:latest
+```
+
+Kubernetes / Helm image values:
+
+```yaml
+image:
+  repository: ghcr.io/dunrip/dunrip-webhook-bridge
+  tag: latest
+  pullPolicy: IfNotPresent
+```
+
+---
+
 ## Security Notes
 
 - Do not commit `.env` or secrets
