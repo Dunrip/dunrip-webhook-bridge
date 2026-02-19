@@ -61,6 +61,17 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Determine Trivy gate mode
+        id: trivy_mode
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "mode=blocking-release" >> "$GITHUB_OUTPUT"
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=non-blocking-main" >> "$GITHUB_OUTPUT"
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -68,11 +79,22 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: "0"
+          exit-code: ${{ steps.trivy_mode.outputs.exit_code }}
           ignore-unfixed: true
+          trivyignores: .trivyignore
+
+      - name: Trivy gate summary
+        if: always()
+        run: |
+          echo "## GHCR Trivy Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: `${{ steps.trivy_mode.outputs.mode }}`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Exit code policy: `${{ steps.trivy_mode.outputs.exit_code }}` (1=blocking, 0=non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Scope: CRITICAL,HIGH (ignore unfixed=true)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline/Suppressions: `.trivyignore` (tracked with owner + expiry)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Policy doc: `docs/ops/trivy-ghcr-policy.md`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif

@@ -274,6 +274,7 @@ image:
 - Use strong random secrets for all token/key fields
 - Prefer scoped admin keys over legacy single key
 - Keep CI security workflows enabled (dependency + secrets scanning)
+- Follow container vulnerability gate policy for GHCR publishes: [`docs/ops/trivy-ghcr-policy.md`](docs/ops/trivy-ghcr-policy.md)
 - Follow the CI failure triage checklist: [`docs/ops/ci-failure-triage.md`](docs/ops/ci-failure-triage.md)
 - Use benchmark baseline guardrails: [`docs/monitoring/reliability-benchmark.md`](docs/monitoring/reliability-benchmark.md)
 
