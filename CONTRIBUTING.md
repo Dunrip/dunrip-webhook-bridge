@@ -25,20 +25,19 @@ Open a GitHub issue with:
 3. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+uv sync --extra dev
 ```
 
 4. Run tests:
 
 ```bash
-pytest
+uv run pytest
 ```
 
-## Package Layout (Transition)
+## Package Layout
 
 - Canonical Python package path is `app/`.
 - Canonical ASGI app entrypoint is `app/main.py`.
-- Root-level modules (for example `main.py`, `config.py`) are temporary compatibility shims.
 - Prefer `app.*` imports in new or updated code.
 
 ## Pull Request Process
@@ -59,3 +58,14 @@ pytest
 - Keep functions small and focused.
 - Add docstrings/comments only when they improve clarity.
 - Follow existing project patterns and naming conventions.
+
+
+## Dependency Management
+
+- `pyproject.toml` is the source of truth for dependencies.
+- `uv.lock` is committed for reproducible environments.
+- `requirements.txt` is generated from `uv.lock` for compatibility tooling:
+
+```bash
+uv export --format requirements-txt --no-hashes --all-extras > requirements.txt
+```

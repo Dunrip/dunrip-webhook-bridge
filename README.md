@@ -168,6 +168,15 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ---
 
+## Development Environment (uv-first)
+
+```bash
+uv sync --extra dev
+uv run pytest
+```
+
+`pyproject.toml` + `uv.lock` are the canonical dependency sources. `requirements.txt` is kept for compatibility and is generated from the lockfile.
+
 ## Common Commands
 
 ```bash

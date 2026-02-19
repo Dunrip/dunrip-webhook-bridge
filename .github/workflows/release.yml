@@ -23,20 +23,23 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install security scanners
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit gitleaks
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
       - name: Dependency scan gate
         id: deps_scan
-        run: pip-audit -r requirements.txt
+        run: uvx pip-audit -r requirements.txt
 
       - name: Secrets scan gate
         id: secrets_scan
-        run: gitleaks detect --source . --config .gitleaks.toml --no-banner --redact
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --source . --config .gitleaks.toml --no-banner --redact
 
       - name: Security gate summary
         if: always()
