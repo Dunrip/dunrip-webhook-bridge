@@ -1,16 +1,13 @@
 """Tests for the routing engine."""
 
-import os
-import tempfile
-
 import pytest
 
 from app.services.routing import (
-    RouteFilter,
-    Route,
     _DESTINATION_REGISTRY,
-    _extract_branch,
+    Route,
+    RouteFilter,
     _build_destination,
+    _extract_branch,
     bootstrap_builtin_destinations,
     destination_health_snapshot,
     load_routes,
@@ -18,10 +15,10 @@ from app.services.routing import (
 )
 from destinations.base import Destination, DestinationError
 
-
 # ---------------------------------------------------------------------------
 # RouteFilter.matches
 # ---------------------------------------------------------------------------
+
 
 class TestRouteFilter:
     def test_empty_filter_matches_everything(self):
@@ -71,6 +68,7 @@ class TestRouteFilter:
 # _extract_branch
 # ---------------------------------------------------------------------------
 
+
 class TestExtractBranch:
     def test_push(self):
         assert _extract_branch("push", {"ref": "refs/heads/main"}) == "main"
@@ -88,6 +86,7 @@ class TestExtractBranch:
 # ---------------------------------------------------------------------------
 # load_routes
 # ---------------------------------------------------------------------------
+
 
 class TestLoadRoutes:
     def test_empty_string_returns_empty(self):
@@ -156,6 +155,7 @@ routes:
 # ---------------------------------------------------------------------------
 # route_event
 # ---------------------------------------------------------------------------
+
 
 class TestDestinationBootstrap:
     def test_builtin_destinations_registered(self):

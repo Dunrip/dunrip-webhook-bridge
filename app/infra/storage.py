@@ -11,7 +11,7 @@ import logging
 import time
 import uuid
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 try:
@@ -115,9 +115,7 @@ class MemoryStorage:
         now = time.time()
         cutoff = now - self._idempotency_ttl
         if len(self._idempotency_store) > 1000 and hash(delivery_id) % 10 == 0:
-            self._idempotency_store = {
-                key: ts for key, ts in self._idempotency_store.items() if ts >= cutoff
-            }
+            self._idempotency_store = {key: ts for key, ts in self._idempotency_store.items() if ts >= cutoff}
 
         existing = self._idempotency_store.get(delivery_id)
         if existing and now - existing < self._idempotency_ttl:
@@ -131,9 +129,7 @@ class MemoryStorage:
         now = time.time()
         cutoff = now - ttl_seconds
         if len(self._replay_operation_store) > 1000:
-            self._replay_operation_store = {
-                key: ts for key, ts in self._replay_operation_store.items() if ts >= cutoff
-            }
+            self._replay_operation_store = {key: ts for key, ts in self._replay_operation_store.items() if ts >= cutoff}
 
         existing = self._replay_operation_store.get(operation_key)
         if existing and now - existing < ttl_seconds:
@@ -156,9 +152,7 @@ class MemoryStorage:
         cutoff = now - self._failed_delivery_ttl
         if len(self.failed_deliveries) > 1000:
             self.failed_deliveries = {
-                key: record
-                for key, record in self.failed_deliveries.items()
-                if record["created_at_unix"] >= cutoff
+                key: record for key, record in self.failed_deliveries.items() if record["created_at_unix"] >= cutoff
             }
 
         failed_id = str(uuid.uuid4())
@@ -440,7 +434,7 @@ class FallbackStorage:
         if not self._fallback_active:
             self._fallback_active = True
             self._fallback_reason = str(exc)
-            self._fallback_since = datetime.now(timezone.utc).isoformat()
+            self._fallback_since = datetime.now(UTC).isoformat()
             logger.error(
                 "Primary Redis storage unavailable, enabling memory fallback operation=%s error=%s",
                 operation,
@@ -553,10 +547,14 @@ class FallbackStorage:
         reason: str | None = None,
     ) -> dict[str, Any]:
         try:
-            return await self._primary.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
+            return await self._primary.upsert_delivery_ledger(
+                provider, inbound_delivery_id, payload_hash, status, reason
+            )
         except RedisError as exc:
             self._activate_fallback("upsert_delivery_ledger", exc)
-            return await self._fallback.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
+            return await self._fallback.upsert_delivery_ledger(
+                provider, inbound_delivery_id, payload_hash, status, reason
+            )
 
     async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
         try:

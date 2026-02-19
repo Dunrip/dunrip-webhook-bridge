@@ -29,12 +29,12 @@ def _build_embed(message: str, event_type: str, payload: dict[str, Any]) -> dict
         repo = payload["repository"].get("full_name", "")
 
     color_map = {
-        "push": 0x2ECC71,            # green
-        "pull_request": 0x3498DB,     # blue
-        "issues": 0xE67E22,           # orange
-        "release": 0x9B59B6,          # purple
-        "workflow_run": 0x1ABC9C,     # teal
-        "generic": 0x95A5A6,          # grey
+        "push": 0x2ECC71,  # green
+        "pull_request": 0x3498DB,  # blue
+        "issues": 0xE67E22,  # orange
+        "release": 0x9B59B6,  # purple
+        "workflow_run": 0x1ABC9C,  # teal
+        "generic": 0x95A5A6,  # grey
     }
 
     plain = _strip_mdv2(message)

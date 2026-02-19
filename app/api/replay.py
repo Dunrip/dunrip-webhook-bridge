@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 
 from app.core.config import settings
 from app.core.exceptions import ValidationError
-from app.services.formatters import get_formatter
-from app.observability.observability import audit_log, fingerprint_api_key
 from app.core.security import get_client_ip, is_admin_ip_allowed, require_admin_scope
 from app.infra.storage import Storage
-from app.services.tg_client import TelegramSendError, format_generic, send_message
+from app.observability.observability import audit_log, fingerprint_api_key
+from app.services.formatters import get_formatter
 from app.services.reliability import payload_hash
+from app.services.tg_client import TelegramSendError, format_generic, send_message
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +63,27 @@ async def _replay_delivery(record: dict[str, Any], storage: Storage, *, override
     replay_attempts = int(record.get("replay_attempts") or 0)
     last_replay_at = record.get("last_replay_at")
     if not override and replay_attempts >= settings.max_replay_attempts:
-        await storage.update_failed_delivery(record["id"], {"status": "dead_letter", "last_replay_status": "max_attempts_exceeded", "last_replay_at": now})
-        raise ValidationError("Replay attempts exceeded maximum; delivery moved to dead-letter queue", error_code="replay_max_attempts_exceeded", status_code=409)
+        await storage.update_failed_delivery(
+            record["id"],
+            {"status": "dead_letter", "last_replay_status": "max_attempts_exceeded", "last_replay_at": now},
+        )
+        raise ValidationError(
+            "Replay attempts exceeded maximum; delivery moved to dead-letter queue",
+            error_code="replay_max_attempts_exceeded",
+            status_code=409,
+        )
     if not override and last_replay_at and now - float(last_replay_at) < settings.replay_cooldown_seconds:
-        raise ValidationError("Replay cooldown active for this delivery", error_code="replay_cooldown_active", status_code=429)
+        raise ValidationError(
+            "Replay cooldown active for this delivery", error_code="replay_cooldown_active", status_code=429
+        )
 
     source, event_type, payload = record["source"], record["event_type"], record["payload"]
     inbound_delivery_id = record.get("delivery_id") or record["id"]
     record_hash = payload_hash(payload)
-    await storage.update_failed_delivery(record["id"], {"replay_attempts": replay_attempts + 1, "last_replay_at": now, "last_replay_status": "in_progress"})
+    await storage.update_failed_delivery(
+        record["id"],
+        {"replay_attempts": replay_attempts + 1, "last_replay_at": now, "last_replay_status": "in_progress"},
+    )
 
     if source == "generic":
         message = format_generic(payload.get("title", ""), payload.get("body", ""), payload.get("url"))
@@ -78,7 +91,9 @@ async def _replay_delivery(record: dict[str, Any], storage: Storage, *, override
         formatter = get_formatter(event_type)
         if not formatter:
             await storage.update_failed_delivery(record["id"], {"last_replay_status": "failed"})
-            await storage.upsert_delivery_ledger(source, inbound_delivery_id, record_hash, "failed", "formatter_not_found")
+            await storage.upsert_delivery_ledger(
+                source, inbound_delivery_id, record_hash, "failed", "formatter_not_found"
+            )
             return "failed"
         message = formatter(payload)
 
@@ -92,21 +107,52 @@ async def _replay_delivery(record: dict[str, Any], storage: Storage, *, override
         attempts = int((updated or {}).get("replay_attempts") or (replay_attempts + 1))
         new_status = "dead_letter" if attempts >= settings.max_replay_attempts else "failed"
         await storage.update_failed_delivery(record["id"], {"status": new_status, "last_replay_status": "failed"})
-        await storage.upsert_delivery_ledger(source, inbound_delivery_id, record_hash, "failed", "replay_delivery_failed")
+        await storage.upsert_delivery_ledger(
+            source, inbound_delivery_id, record_hash, "failed", "replay_delivery_failed"
+        )
         return new_status
 
 
 @router.get("/deliveries")
-async def list_deliveries(request: Request, source: str | None = Query(default=None), status: str | None = Query(default=None), limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0), _auth: str = Depends(require_admin_scope("read")), storage: Storage = Depends(_get_storage)) -> dict[str, Any]:
+async def list_deliveries(
+    request: Request,
+    source: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _auth: str = Depends(require_admin_scope("read")),
+    storage: Storage = Depends(_get_storage),
+) -> dict[str, Any]:
     deliveries, total = await storage.list_failed_deliveries(source=source, status=status, limit=limit, offset=offset)
-    audit_log(logger, action="GET /deliveries", request_id=getattr(request.state, "request_id", "-"), client_ip=get_client_ip(request), auth_result="allow", status="ok", actor_key_id=_actor_key_id_from_request(request))
+    audit_log(
+        logger,
+        action="GET /deliveries",
+        request_id=getattr(request.state, "request_id", "-"),
+        client_ip=get_client_ip(request),
+        auth_result="allow",
+        status="ok",
+        actor_key_id=_actor_key_id_from_request(request),
+    )
     return {"deliveries": deliveries, "total": total}
 
 
 @router.post("/deliveries/{delivery_id}/replay")
-async def replay_delivery(delivery_id: str, request: Request, override: bool = Query(default=False), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), _auth: str = Depends(require_admin_scope("replay")), storage: Storage = Depends(_get_storage)) -> dict[str, str]:
-    if idempotency_key and await storage.is_duplicate_replay_operation(f"single:{delivery_id}:{idempotency_key}", settings.replay_cooldown_seconds):
-        raise ValidationError("Duplicate replay request blocked by idempotency key", error_code="replay_duplicate_request", status_code=409)
+async def replay_delivery(
+    delivery_id: str,
+    request: Request,
+    override: bool = Query(default=False),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    _auth: str = Depends(require_admin_scope("replay")),
+    storage: Storage = Depends(_get_storage),
+) -> dict[str, str]:
+    if idempotency_key and await storage.is_duplicate_replay_operation(
+        f"single:{delivery_id}:{idempotency_key}", settings.replay_cooldown_seconds
+    ):
+        raise ValidationError(
+            "Duplicate replay request blocked by idempotency key",
+            error_code="replay_duplicate_request",
+            status_code=409,
+        )
     record = await storage.get_failed_delivery(delivery_id)
     if not record:
         raise ValidationError("Delivery not found", error_code="delivery_not_found", status_code=404)
@@ -115,27 +161,71 @@ async def replay_delivery(delivery_id: str, request: Request, override: bool = Q
     inbound_delivery_id = record.get("delivery_id") or headers.get("x-request-id") or record["id"]
     ledger = await storage.get_delivery_ledger(provider, inbound_delivery_id)
     if ledger and ledger.get("status") == "delivered" and not override:
-        raise ValidationError("Replay blocked: delivery already marked delivered in ledger", error_code="replay_already_delivered", status_code=409)
+        raise ValidationError(
+            "Replay blocked: delivery already marked delivered in ledger",
+            error_code="replay_already_delivered",
+            status_code=409,
+        )
     new_status = await _replay_delivery(record, storage, override=override)
-    audit_log(logger, action="POST /deliveries/{id}/replay", request_id=getattr(request.state, "request_id", "-"), client_ip=get_client_ip(request), auth_result="allow", status=new_status, actor_key_id=_actor_key_id_from_request(request), delivery_id=delivery_id)
+    audit_log(
+        logger,
+        action="POST /deliveries/{id}/replay",
+        request_id=getattr(request.state, "request_id", "-"),
+        client_ip=get_client_ip(request),
+        auth_result="allow",
+        status=new_status,
+        actor_key_id=_actor_key_id_from_request(request),
+        delivery_id=delivery_id,
+    )
     return {"status": new_status, "delivery_id": delivery_id}
 
 
+async def _replay_all_background(
+    records: list[dict[str, Any]], storage: Storage, *, override: bool = False
+) -> None:
+    """Process replay-all deliveries in the background with bounded concurrency."""
+    sem = asyncio.Semaphore(10)
+
+    async def _replay_one(record: dict[str, Any]) -> None:
+        async with sem:
+            try:
+                await _replay_delivery(record, storage, override=override)
+            except (ValidationError, Exception):
+                logger.warning("Background replay failed for record=%s", record.get("id"))
+
+    await asyncio.gather(*[_replay_one(r) for r in records])
+
+
 @router.post("/deliveries/replay-all")
-async def replay_all(request: Request, override: bool = Query(default=False), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), _auth: str = Depends(require_admin_scope("replay")), storage: Storage = Depends(_get_storage)) -> dict[str, int]:
-    if idempotency_key and await storage.is_duplicate_replay_operation(f"all:{idempotency_key}", settings.replay_cooldown_seconds):
-        raise ValidationError("Duplicate replay-all request blocked by idempotency key", error_code="replay_duplicate_request", status_code=409)
+async def replay_all(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    override: bool = Query(default=False),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    _auth: str = Depends(require_admin_scope("replay")),
+    storage: Storage = Depends(_get_storage),
+) -> dict[str, Any]:
+    if idempotency_key and await storage.is_duplicate_replay_operation(
+        f"all:{idempotency_key}", settings.replay_cooldown_seconds
+    ):
+        raise ValidationError(
+            "Duplicate replay-all request blocked by idempotency key",
+            error_code="replay_duplicate_request",
+            status_code=409,
+        )
     failed, _ = await storage.list_failed_deliveries(status="failed", limit=1000, offset=0)
-    attempted = succeeded = failed_count = 0
-    for record in failed:
-        attempted += 1
-        try:
-            new_status = await _replay_delivery(record, storage, override=override)
-        except ValidationError:
-            new_status = "failed"
-        if new_status == "delivered":
-            succeeded += 1
-        else:
-            failed_count += 1
-    audit_log(logger, action="POST /deliveries/replay-all", request_id=getattr(request.state, "request_id", "-"), client_ip=get_client_ip(request), auth_result="allow", status="ok", actor_key_id=_actor_key_id_from_request(request))
-    return {"attempted": attempted, "succeeded": succeeded, "failed": failed_count}
+    queued = len(failed)
+
+    if queued > 0:
+        background_tasks.add_task(_replay_all_background, failed, storage, override=override)
+
+    audit_log(
+        logger,
+        action="POST /deliveries/replay-all",
+        request_id=getattr(request.state, "request_id", "-"),
+        client_ip=get_client_ip(request),
+        auth_result="allow",
+        status="accepted",
+        actor_key_id=_actor_key_id_from_request(request),
+    )
+    return {"status": "accepted", "queued": queued}

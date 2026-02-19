@@ -1,7 +1,5 @@
-import json
 import logging
 
-import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -29,6 +27,7 @@ def _client(monkeypatch, client_host: str = "testclient") -> TestClient:
     monkeypatch.setattr(main.settings, "admin_ip_allowlist", "")
     monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
     from app.infra.circuit_breaker import telegram_circuit
+
     telegram_circuit._reset()
     app = main.create_app()
     # TestClient only runs lifespan when used as a context manager; these tests
@@ -42,40 +41,52 @@ def _client(monkeypatch, client_host: str = "testclient") -> TestClient:
 def _seed_failures(storage: MemoryStorage) -> list[str]:
     """Seed storage with failed deliveries. Returns list of IDs."""
     import asyncio
+
     ids = []
     loop = asyncio.new_event_loop()
 
-    fid = loop.run_until_complete(storage.store_failed_delivery(
-        source="github",
-        event_type="push",
-        payload={"repository": {"full_name": "org/repo"}, "commits": [], "pusher": {"name": "alice"}, "ref": "refs/heads/main"},
-        headers={"x-github-event": "push"},
-        error="Telegram network error",
-        delivery_id="gh-del-1",
-    ))
+    fid = loop.run_until_complete(
+        storage.store_failed_delivery(
+            source="github",
+            event_type="push",
+            payload={
+                "repository": {"full_name": "org/repo"},
+                "commits": [],
+                "pusher": {"name": "alice"},
+                "ref": "refs/heads/main",
+            },
+            headers={"x-github-event": "push"},
+            error="Telegram network error",
+            delivery_id="gh-del-1",
+        )
+    )
     ids.append(fid)
 
-    fid = loop.run_until_complete(storage.store_failed_delivery(
-        source="generic",
-        event_type="generic",
-        payload={"title": "Deploy", "body": "Failed deploy"},
-        headers={"x-request-id": "gen-del-1"},
-        error="Telegram rate limited",
-        delivery_id="gen-del-1",
-    ))
+    fid = loop.run_until_complete(
+        storage.store_failed_delivery(
+            source="generic",
+            event_type="generic",
+            payload={"title": "Deploy", "body": "Failed deploy"},
+            headers={"x-request-id": "gen-del-1"},
+            error="Telegram rate limited",
+            delivery_id="gen-del-1",
+        )
+    )
     ids.append(fid)
 
-    fid = loop.run_until_complete(storage.store_failed_delivery(
-        source="github",
-        event_type="pull_request",
-        payload={
-            "action": "opened",
-            "pull_request": {"title": "Fix", "number": 1, "user": {"login": "bob"}, "html_url": ""},
-            "repository": {"full_name": "org/repo"},
-        },
-        headers={"x-github-event": "pull_request"},
-        error="Circuit breaker open",
-    ))
+    fid = loop.run_until_complete(
+        storage.store_failed_delivery(
+            source="github",
+            event_type="pull_request",
+            payload={
+                "action": "opened",
+                "pull_request": {"title": "Fix", "number": 1, "user": {"login": "bob"}, "html_url": ""},
+                "repository": {"full_name": "org/repo"},
+            },
+            headers={"x-github-event": "pull_request"},
+            error="Circuit breaker open",
+        )
+    )
     ids.append(fid)
 
     loop.close()
@@ -121,6 +132,7 @@ def test_replay_requires_replay_scope(monkeypatch) -> None:
         return None
 
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", ok_send)
 
     denied = client.post(f"/deliveries/{ids[0]}/replay", headers={"X-API-Key": "read-only"})
@@ -144,7 +156,7 @@ def test_list_deliveries_with_failures(monkeypatch) -> None:
     """List deliveries returns stored failures."""
     client = _client(monkeypatch)
     storage = client.app.state.storage
-    ids = _seed_failures(storage)
+    _seed_failures(storage)
 
     response = client.get("/deliveries")
     assert response.status_code == 200
@@ -206,9 +218,10 @@ def test_replay_delivery_success(monkeypatch) -> None:
     async def fake_send(text: str) -> None:
         sent.append(text)
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
     # Also patch in replay module
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -240,8 +253,9 @@ def test_replay_delivery_telegram_failure(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("still broken")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fail_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -264,8 +278,9 @@ def test_replay_generic_delivery(monkeypatch) -> None:
     async def fake_send(text: str) -> None:
         sent.append(text)
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     # ids[1] is the generic delivery
@@ -276,89 +291,61 @@ def test_replay_generic_delivery(monkeypatch) -> None:
 
 
 def test_replay_all_success(monkeypatch) -> None:
-    """Replay all retries all failed deliveries."""
+    """Replay all accepts and queues all failed deliveries."""
     client = _client(monkeypatch)
     storage = client.app.state.storage
-    ids = _seed_failures(storage)
-
-    sent: list[str] = []
+    _seed_failures(storage)
 
     async def fake_send(text: str) -> None:
-        sent.append(text)
+        pass
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fake_send)
 
     response = client.post("/deliveries/replay-all")
     assert response.status_code == 200
     data = response.json()
-    assert data["attempted"] == 3
-    assert data["succeeded"] == 3
-    assert data["failed"] == 0
-    assert len(sent) == 3
-
-
-def test_replay_all_partial_failure(monkeypatch) -> None:
-    """Replay all handles mixed success/failure."""
-    client = _client(monkeypatch)
-    storage = client.app.state.storage
-    ids = _seed_failures(storage)
-
-    call_count = 0
-
-    async def sometimes_fail(text: str) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 2:
-            raise TelegramSendError("fail on second")
-
-    monkeypatch.setattr(main, "send_message", sometimes_fail)
-    import app.api.replay as replay
-    monkeypatch.setattr(replay, "send_message", sometimes_fail)
-
-    response = client.post("/deliveries/replay-all")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["attempted"] == 3
-    assert data["succeeded"] == 2
-    assert data["failed"] == 1
+    assert data["status"] == "accepted"
+    assert data["queued"] == 3
 
 
 def test_replay_all_empty(monkeypatch) -> None:
-    """Replay all with no failures returns zeros."""
+    """Replay all with no failures returns zero queued."""
     client = _client(monkeypatch)
 
     response = client.post("/deliveries/replay-all")
     assert response.status_code == 200
     data = response.json()
-    assert data["attempted"] == 0
-    assert data["succeeded"] == 0
-    assert data["failed"] == 0
+    assert data["status"] == "accepted"
+    assert data["queued"] == 0
 
 
-def test_replay_unknown_event_formatter_is_counted_as_failed(monkeypatch) -> None:
-    """Unknown event types should not crash replay and should be counted as failed."""
+def test_replay_unknown_event_formatter_queued_via_background(monkeypatch) -> None:
+    """Unknown event types are queued for background processing."""
     client = _client(monkeypatch)
     storage = client.app.state.storage
 
     import asyncio
+
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(storage.store_failed_delivery(
-        source="github",
-        event_type="fork",  # no registered formatter
-        payload={"repository": {"full_name": "org/repo"}},
-        headers={"x-github-event": "fork"},
-        error="initial failure",
-    ))
+    loop.run_until_complete(
+        storage.store_failed_delivery(
+            source="github",
+            event_type="fork",  # no registered formatter
+            payload={"repository": {"full_name": "org/repo"}},
+            headers={"x-github-event": "fork"},
+            error="initial failure",
+        )
+    )
     loop.close()
 
     response = client.post("/deliveries/replay-all")
     assert response.status_code == 200
     data = response.json()
-    assert data["attempted"] == 1
-    assert data["succeeded"] == 0
-    assert data["failed"] == 1
+    assert data["status"] == "accepted"
+    assert data["queued"] == 1
 
 
 def test_replay_cooldown_enforced(monkeypatch) -> None:
@@ -371,6 +358,7 @@ def test_replay_cooldown_enforced(monkeypatch) -> None:
         raise TelegramSendError("still failing")
 
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fail_send)
 
     first = client.post(f"/deliveries/{ids[0]}/replay")
@@ -389,6 +377,7 @@ def test_replay_idempotency_key_blocks_duplicates(monkeypatch) -> None:
         return None
 
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", ok_send)
 
     headers = {"Idempotency-Key": "abc", "X-API-Key": "admin-test-key"}
@@ -409,6 +398,7 @@ def test_replay_max_attempts_moves_to_dead_letter(monkeypatch) -> None:
         raise TelegramSendError("boom")
 
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", fail_send)
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -449,12 +439,14 @@ def test_deliveries_allowlist_respects_trusted_proxy_xff(monkeypatch) -> None:
 
     assert response.status_code == 200
 
+
 def test_replay_safety_blocks_already_delivered_ledger(monkeypatch) -> None:
     client = _client(monkeypatch)
     storage = client.app.state.storage
     ids = _seed_failures(storage)
 
     import asyncio
+
     asyncio.run(storage.upsert_delivery_ledger("github", "gh-del-1", "hash-x", "delivered"))
 
     response = client.post(f"/deliveries/{ids[0]}/replay")
@@ -468,6 +460,7 @@ def test_replay_generic_safety_blocks_already_delivered_ledger(monkeypatch) -> N
     ids = _seed_failures(storage)
 
     import asyncio
+
     generic_record = storage.failed_deliveries[ids[1]]
     generic_delivery_id = generic_record["delivery_id"]
     asyncio.run(storage.upsert_delivery_ledger("generic", generic_delivery_id, "hash-x", "delivered"))
@@ -486,7 +479,9 @@ def test_replay_updates_ledger_to_delivered(monkeypatch) -> None:
         return None
 
     import asyncio
+
     import app.api.replay as replay
+
     monkeypatch.setattr(replay, "send_message", ok_send)
     asyncio.run(storage.upsert_delivery_ledger("github", "gh-del-1", "hash-x", "failed", "delivery_failed"))
 

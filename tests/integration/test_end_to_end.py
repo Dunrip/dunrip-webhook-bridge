@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.services.tg_client import TelegramSendError
 
-
 pytestmark = pytest.mark.integration
 
 
@@ -58,7 +57,7 @@ def test_end_to_end_github_flow_with_redis_backend(monkeypatch) -> None:
     async def capture_send(msg: str) -> None:
         sent_messages.append(msg)
 
-    monkeypatch.setattr(main, "send_message", capture_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", capture_send)
 
     app = main.create_app()
     payload = json.dumps({"repository": {"full_name": "org/repo"}, "commits": []}).encode()
@@ -100,7 +99,7 @@ def test_end_to_end_failed_delivery_persisted(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("boom")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     app = main.create_app()
     payload = json.dumps({"repository": {"full_name": "org/repo"}, "commits": []}).encode()
@@ -119,8 +118,6 @@ def test_end_to_end_failed_delivery_persisted(monkeypatch) -> None:
 
         import asyncio
 
-        rows, total = asyncio.run(
-            client.app.state.storage.list_failed_deliveries(source="github", status="failed")
-        )
+        rows, total = asyncio.run(client.app.state.storage.list_failed_deliveries(source="github", status="failed"))
         assert total >= 1
         assert rows[0]["source"] == "github"

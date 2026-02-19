@@ -1,6 +1,5 @@
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -17,6 +16,7 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "rate_limit_ip_per_minute", 1000)
     monkeypatch.setattr(main.settings, "rate_limit_token_per_minute", 1000)
     from app.infra.circuit_breaker import telegram_circuit
+
     telegram_circuit._reset()
     app = main.create_app()
     return TestClient(app)
@@ -29,7 +29,7 @@ def test_github_sandbox_push(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise AssertionError("send_message must NOT be called in sandbox")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     payload = {
         "repository": {"full_name": "org/repo"},
@@ -132,7 +132,7 @@ def test_generic_sandbox(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise AssertionError("send_message must NOT be called in sandbox")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     response = client.post(
         "/webhook/generic/sandbox",

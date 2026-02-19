@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # Circuit breaker settings
     circuit_breaker_threshold: int = 5  # Failures before opening
-    circuit_breaker_timeout: int = 60   # Seconds before half-open
+    circuit_breaker_timeout: int = 60  # Seconds before half-open
 
     # Rate limiting settings
     rate_limit_backend: str = "memory"  # memory | redis

@@ -1,19 +1,18 @@
 """Tests for destination implementations."""
 
-import json
-
 import httpx
 import pytest
 
-from destinations.base import Destination, DestinationError
-from destinations.telegram import TelegramDestination
+from destinations.base import DestinationError
 from destinations.discord import DiscordDestination, _build_embed, _strip_mdv2
-from destinations.slack import SlackDestination, _build_blocks, _strip_mdv2 as _slack_strip
-
+from destinations.slack import SlackDestination, _build_blocks
+from destinations.slack import _strip_mdv2 as _slack_strip
+from destinations.telegram import TelegramDestination
 
 # ---------------------------------------------------------------------------
 # DestinationError
 # ---------------------------------------------------------------------------
+
 
 class TestDestinationError:
     def test_message_format(self):
@@ -25,6 +24,7 @@ class TestDestinationError:
 # ---------------------------------------------------------------------------
 # TelegramDestination
 # ---------------------------------------------------------------------------
+
 
 class TestTelegramDestination:
     def test_name(self):
@@ -60,6 +60,7 @@ class TestTelegramDestination:
 # Discord helpers
 # ---------------------------------------------------------------------------
 
+
 class TestDiscordHelpers:
     def test_strip_mdv2(self):
         assert _strip_mdv2(r"Hello \*world\*") == "Hello *world*"
@@ -81,6 +82,7 @@ class TestDiscordHelpers:
 # DiscordDestination
 # ---------------------------------------------------------------------------
 
+
 class TestDiscordDestination:
     def test_name(self):
         d = DiscordDestination("https://discord.com/api/webhooks/123/abc")
@@ -92,14 +94,17 @@ class TestDiscordDestination:
 
         class FakeResponse:
             status_code = 204
+
             def raise_for_status(self):
                 pass
 
         class FakeClient:
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
+
             async def post(self, url, json=None):
                 posted_data.append(json)
                 return FakeResponse()
@@ -115,14 +120,17 @@ class TestDiscordDestination:
         class FakeResponse:
             status_code = 400
             text = "Bad Request"
+
             def raise_for_status(self):
                 raise httpx.HTTPStatusError("err", request=None, response=self)
 
         class FakeClient:
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
+
             async def post(self, url, json=None):
                 return FakeResponse()
 
@@ -135,6 +143,7 @@ class TestDiscordDestination:
 # ---------------------------------------------------------------------------
 # Slack helpers
 # ---------------------------------------------------------------------------
+
 
 class TestSlackHelpers:
     def test_strip_mdv2(self):
@@ -152,6 +161,7 @@ class TestSlackHelpers:
 # SlackDestination
 # ---------------------------------------------------------------------------
 
+
 class TestSlackDestination:
     def test_name(self):
         d = SlackDestination("https://hooks.slack.com/services/T/B/x")
@@ -164,14 +174,17 @@ class TestSlackDestination:
         class FakeResponse:
             status_code = 200
             text = "ok"
+
             def raise_for_status(self):
                 pass
 
         class FakeClient:
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
+
             async def post(self, url, json=None):
                 posted.append(json)
                 return FakeResponse()
@@ -187,14 +200,17 @@ class TestSlackDestination:
         class FakeResponse:
             status_code = 500
             text = "Internal Server Error"
+
             def raise_for_status(self):
                 raise httpx.HTTPStatusError("err", request=None, response=self)
 
         class FakeClient:
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, *args):
                 pass
+
             async def post(self, url, json=None):
                 return FakeResponse()
 
@@ -207,6 +223,7 @@ class TestSlackDestination:
 # ---------------------------------------------------------------------------
 # Destination base class / repr
 # ---------------------------------------------------------------------------
+
 
 class TestDestinationBase:
     def test_repr(self):

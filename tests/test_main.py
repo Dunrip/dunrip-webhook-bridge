@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -31,6 +30,7 @@ def _client(monkeypatch) -> TestClient:
     monkeypatch.setattr(main.settings, "replay_cooldown_seconds", 30)
     monkeypatch.setattr(main.settings, "max_replay_attempts", 10)
     from app.infra.circuit_breaker import telegram_circuit
+
     telegram_circuit._reset()
     app = main.create_app()
     return TestClient(app)
@@ -51,6 +51,7 @@ def test_health_deep_success(monkeypatch) -> None:
         async def get_me(self):
             class Me:
                 username = "test_bot"
+
             return Me()
 
     # Mock the Bot import inside main module
@@ -100,7 +101,7 @@ def test_github_ping(monkeypatch) -> None:
     async def fake_send(_: str) -> None:
         raise AssertionError("send_message should not be called for ping")
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
 
     response = client.post(
         "/webhook/github",
@@ -177,7 +178,7 @@ def test_github_send_failure_returns_502(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("boom")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     response = client.post(
         "/webhook/github",
@@ -201,7 +202,7 @@ def test_github_idempotency_duplicate_ignored(monkeypatch) -> None:
         nonlocal call_count
         call_count += 1
 
-    monkeypatch.setattr(main, "send_message", counting_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", counting_send)
 
     # First request
     response1 = client.post(
@@ -235,18 +236,20 @@ def test_github_idempotency_duplicate_ignored(monkeypatch) -> None:
 def test_github_release_event(monkeypatch) -> None:
     """Test release event formatter is called."""
     client = _client(monkeypatch)
-    payload = json.dumps({
-        "action": "published",
-        "release": {"tag_name": "v1.0.0", "name": "Version 1.0"},
-        "repository": {"full_name": "org/repo"},
-    }).encode()
+    payload = json.dumps(
+        {
+            "action": "published",
+            "release": {"tag_name": "v1.0.0", "name": "Version 1.0"},
+            "repository": {"full_name": "org/repo"},
+        }
+    ).encode()
 
     sent_messages: list[str] = []
 
     async def capture_send(msg: str) -> None:
         sent_messages.append(msg)
 
-    monkeypatch.setattr(main, "send_message", capture_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", capture_send)
 
     response = client.post(
         "/webhook/github",
@@ -266,19 +269,21 @@ def test_github_release_event(monkeypatch) -> None:
 def test_github_workflow_run_event(monkeypatch) -> None:
     """Test workflow_run event formatter is called."""
     client = _client(monkeypatch)
-    payload = json.dumps({
-        "action": "completed",
-        "workflow_run": {"conclusion": "success", "head_branch": "main"},
-        "workflow": {"name": "CI"},
-        "repository": {"full_name": "org/repo"},
-    }).encode()
+    payload = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {"conclusion": "success", "head_branch": "main"},
+            "workflow": {"name": "CI"},
+            "repository": {"full_name": "org/repo"},
+        }
+    ).encode()
 
     sent_messages: list[str] = []
 
     async def capture_send(msg: str) -> None:
         sent_messages.append(msg)
 
-    monkeypatch.setattr(main, "send_message", capture_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", capture_send)
 
     response = client.post(
         "/webhook/github",
@@ -301,7 +306,7 @@ def test_generic_success(monkeypatch) -> None:
     async def fake_send(text: str) -> None:
         sent.append(text)
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
 
     response = client.post(
         "/webhook/generic",
@@ -310,7 +315,7 @@ def test_generic_success(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "sent"}
+    assert response.json()["status"] == "sent"
     assert sent
 
 
@@ -337,7 +342,7 @@ def test_generic_send_failure_returns_502(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("fail")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     response = client.post(
         "/webhook/generic",
@@ -356,7 +361,7 @@ def test_github_failure_is_stored(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("boom")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
 
     response = client.post(
         "/webhook/github",
@@ -384,7 +389,7 @@ def test_generic_failure_is_stored(monkeypatch) -> None:
     async def fail_send(_: str) -> None:
         raise TelegramSendError("boom")
 
-    monkeypatch.setattr(main, "send_message", fail_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fail_send)
     response = client.post(
         "/webhook/generic",
         headers={"X-Webhook-Token": "generic-token"},

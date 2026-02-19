@@ -248,7 +248,8 @@ def describe_admin_auth_mode() -> tuple[str, str | None]:
     if (has_scoped or has_active or has_previous) and has_legacy:
         warning = (
             "Conflicting admin auth env vars detected: ADMIN_API_KEYS* and ADMIN_API_KEY are both set. "
-            "The service will use ADMIN_API_KEYS*. Remove ADMIN_API_KEY (recommended) or clear ADMIN_API_KEYS* to use legacy mode."
+            "The service will use ADMIN_API_KEYS*. Remove ADMIN_API_KEY (recommended) "
+            "or clear ADMIN_API_KEYS* to use legacy mode."
         )
 
     if has_active:
@@ -293,10 +294,30 @@ def require_admin_scope(required_scope: str):
         action = f"{request.method} {request.url.path}"
         result = authenticate_admin_api_key_headers(request.headers, required_scope=required_scope)
         if result.reason == "not_configured":
-            audit_log(logger, action=action, request_id=rid, client_ip=ip, auth_result="error", status="admin_key_not_configured", actor_key_id=result.actor_key_id, reason=result.reason)
-            raise AuthenticationError("Admin API key not configured", error_code="admin_key_not_configured", status_code=503)
+            audit_log(
+                logger,
+                action=action,
+                request_id=rid,
+                client_ip=ip,
+                auth_result="error",
+                status="admin_key_not_configured",
+                actor_key_id=result.actor_key_id,
+                reason=result.reason,
+            )
+            raise AuthenticationError(
+                "Admin API key not configured", error_code="admin_key_not_configured", status_code=503
+            )
         if not result.ok:
-            audit_log(logger, action=action, request_id=rid, client_ip=ip, auth_result="deny", status="auth_failed", actor_key_id=result.actor_key_id, reason=result.reason)
+            audit_log(
+                logger,
+                action=action,
+                request_id=rid,
+                client_ip=ip,
+                auth_result="deny",
+                status="auth_failed",
+                actor_key_id=result.actor_key_id,
+                reason=result.reason,
+            )
             if result.reason == "missing":
                 raise AuthenticationError("Missing API key", error_code="missing")
             if result.reason == "expired_scope":
@@ -306,7 +327,16 @@ def require_admin_scope(required_scope: str):
             raise AuthenticationError("Invalid API key", error_code="invalid")
         if result.used_previous_key:
             logger.warning("Admin endpoint using previous key within grace window actor_key_id=%s", result.actor_key_id)
-        audit_log(logger, action=action, request_id=rid, client_ip=ip, auth_result="allow", status="ok", actor_key_id=result.actor_key_id, reason="ok")
+        audit_log(
+            logger,
+            action=action,
+            request_id=rid,
+            client_ip=ip,
+            auth_result="allow",
+            status="ok",
+            actor_key_id=result.actor_key_id,
+            reason="ok",
+        )
         return "ok"
 
     return _dependency

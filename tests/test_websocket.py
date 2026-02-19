@@ -24,6 +24,7 @@ class FakeWebSocket:
 # EventBroadcaster
 # ---------------------------------------------------------------------------
 
+
 class TestEventBroadcaster:
     @pytest.mark.asyncio
     async def test_connect_and_disconnect(self):
@@ -68,7 +69,7 @@ class TestEventBroadcaster:
 
         await b.broadcast({"event_type": "issues", "status": "success", "payload": {}})
         assert len(ws_push.sent) == 0  # filtered out
-        assert len(ws_all.sent) == 1   # no filter
+        assert len(ws_all.sent) == 1  # no filter
 
     @pytest.mark.asyncio
     async def test_broadcast_filters_status(self):
@@ -90,16 +91,22 @@ class TestEventBroadcaster:
         c = _Client(ws=ws, repo="a/b")
         await b.connect(c)
 
-        await b.broadcast({
-            "event_type": "push", "status": "success",
-            "payload": {"repository": {"full_name": "a/b"}},
-        })
+        await b.broadcast(
+            {
+                "event_type": "push",
+                "status": "success",
+                "payload": {"repository": {"full_name": "a/b"}},
+            }
+        )
         assert len(ws.sent) == 1
 
-        await b.broadcast({
-            "event_type": "push", "status": "success",
-            "payload": {"repository": {"full_name": "x/y"}},
-        })
+        await b.broadcast(
+            {
+                "event_type": "push",
+                "status": "success",
+                "payload": {"repository": {"full_name": "x/y"}},
+            }
+        )
         assert len(ws.sent) == 1  # still 1, second was filtered
 
     @pytest.mark.asyncio
@@ -126,17 +133,23 @@ class TestEventBroadcaster:
         await b.connect(c)
 
         # Matches both
-        await b.broadcast({
-            "event_type": "push", "status": "success",
-            "payload": {"repository": {"full_name": "a/b"}},
-        })
+        await b.broadcast(
+            {
+                "event_type": "push",
+                "status": "success",
+                "payload": {"repository": {"full_name": "a/b"}},
+            }
+        )
         assert len(ws.sent) == 1
 
         # Wrong event type
-        await b.broadcast({
-            "event_type": "issues", "status": "success",
-            "payload": {"repository": {"full_name": "a/b"}},
-        })
+        await b.broadcast(
+            {
+                "event_type": "issues",
+                "status": "success",
+                "payload": {"repository": {"full_name": "a/b"}},
+            }
+        )
         assert len(ws.sent) == 1  # not incremented
 
 
@@ -152,10 +165,12 @@ def _app_client(monkeypatch, client_host: str = "testclient"):
     monkeypatch.setattr(main.settings, "ws_ip_allowlist", "")
     app = main.create_app()
     from app.api.websocket import broadcaster
+
     broadcaster._connect_attempts.clear()
     broadcaster._connections_per_ip.clear()
     broadcaster._clients.clear()
     from fastapi.testclient import TestClient
+
     return TestClient(app, client=(client_host, 50000))
 
 
