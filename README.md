@@ -25,8 +25,7 @@ Production-ready FastAPI service that receives GitHub (and generic) webhooks and
 - **Fast incident triage:** [Operator Troubleshooting Decision Tree](docs/ops/troubleshooting-decision-tree.md)
 - **Release governance:** [Release Checklist](docs/release-checklist.md) + [Weekly KPI Scorecard](docs/ops/kpi-scorecard-template.md)
 
-> **Code layout note:** Canonical runtime modules now live under `app/` (for example `app/main.py`).
-> Root-level module files are temporary compatibility shims and will be removed in a later cleanup. See [`SHIMS.md`](SHIMS.md).
+> **Code layout note:** Canonical runtime modules live under `app/` (for example `app/main.py`).
 
 ---
 
@@ -217,7 +216,7 @@ make down         # stop services
 - Render deployment is supported via `deploy/render.yaml` — see [`docs/deploy-render.md`](docs/deploy-render.md)
 - **Best long-running ops:** Docker + reverse proxy with HTTPS on VPS/self-hosted
 
-Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `docker-compose.yml`, `render.yaml`, `prometheus.yml`, canonical `vercel.json`). A root `vercel.json` is intentionally kept as a compatibility shim for Vercel auto-detection.
+Deployment artifacts are organized under [`deploy/`](deploy/) (`Dockerfile`, `docker-compose.yml`, `render.yaml`, `prometheus.yml`, canonical `vercel.json`). A root `vercel.json` is kept for Vercel auto-detection.
 
 ---
 
