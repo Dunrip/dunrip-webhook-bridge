@@ -88,6 +88,17 @@ Then follow the full setup guide: [`docs/deploy-vercel.md`](docs/deploy-vercel.m
 
 ---
 
+## Reliability Guarantees
+
+- **Bounded outbound HTTP timeout:** all outbound HTTP calls use `HTTP_TIMEOUT_SECONDS` (default `10`, validated range `1.0..60.0`). This applies to the shared app client and destination webhook clients.
+- **Storage backend behavior:**
+  - `STORAGE_BACKEND=memory`: in-process volatile state (best for local/dev).
+  - `STORAGE_BACKEND=redis`: Redis is primary. If Redis is unavailable at startup or runtime, the service falls back to memory and emits explicit warning/error logs (no silent fallback).
+- **Operational visibility:** `/health/deep` includes storage backend status (`configured_backend`, `effective_backend`, `fallback_active`, `fallback_reason`) so operators can detect degraded persistence quickly.
+- **Expectation in production:** use Redis-backed storage/rate limiting for durable idempotency and replay metadata across restarts/replicas. Memory fallback is best-effort continuity, not durable persistence.
+
+---
+
 ## Quick Start
 
 ### 1) Clone and enter project
@@ -169,7 +180,7 @@ make down         # stop services
 | `/webhook/github` | POST | GitHub HMAC signature | Receive GitHub webhook events |
 | `/webhook/generic` | POST | `X-Webhook-Token` | Receive generic webhook payloads |
 | `/health` | GET | None | Basic liveness check |
-| `/health/deep` | GET | None | Downstream-aware health (Telegram + breaker state) |
+| `/health/deep` | GET | None | Downstream-aware health (Telegram + breaker + storage backend state) |
 | `/metrics` | GET | None | Prometheus metrics export |
 | `/deliveries` | GET | Admin API key (`read+`) | List failed deliveries |
 | `/deliveries/{id}/replay` | POST | Admin API key (`replay+`) | Replay one failed delivery |

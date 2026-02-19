@@ -28,7 +28,7 @@ from app.api.replay import router as replay_router
 from app.services.routing import load_routes, route_event
 from app.api.sandbox import router as sandbox_router
 from app.core.security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
-from app.infra.storage import Redis, RedisError, Storage, create_storage_backend
+from app.infra.storage import FallbackStorage, Redis, RedisError, Storage, create_storage_backend
 from app.services.reliability import payload_hash
 from app.services.tg_client import TelegramSendError, format_generic, send_message
 from app.api.websocket import broadcaster, router as ws_router
@@ -128,7 +128,7 @@ def _with_request_id_footer(message: str, request_id: str) -> str:
 
 def _initialize_app_state(app: FastAPI) -> None:
     if not hasattr(app.state, "http"):
-        app.state.http = httpx.AsyncClient(timeout=10)
+        app.state.http = httpx.AsyncClient(timeout=settings.http_timeout_seconds)
 
     if not hasattr(app.state, "redis"):
         app.state.redis = None
@@ -146,6 +146,38 @@ def _initialize_app_state(app: FastAPI) -> None:
     if not hasattr(app.state, "routes"):
         app.state.routes = load_routes()
 
+
+
+
+def _storage_health(app: FastAPI) -> dict[str, object]:
+    configured = settings.storage_backend.lower()
+    storage = getattr(app.state, "storage", None)
+    redis_client = getattr(app.state, "redis", None)
+
+    fallback_active = False
+    fallback_reason: str | None = None
+    effective_backend = configured
+
+    if configured == "redis" and redis_client is None:
+        fallback_active = True
+        fallback_reason = "redis_client_unavailable_at_startup"
+        effective_backend = "memory"
+
+    if isinstance(storage, FallbackStorage):
+        snapshot = storage.fallback_state()
+        if snapshot.get("active"):
+            fallback_active = True
+            fallback_reason = str(snapshot.get("reason") or "runtime_redis_error")
+            effective_backend = "memory_fallback"
+        elif configured == "redis":
+            effective_backend = "redis"
+
+    return {
+        "configured_backend": configured,
+        "effective_backend": effective_backend,
+        "fallback_active": fallback_active,
+        "fallback_reason": fallback_reason,
+    }
 
 def _get_storage(request: Request) -> Storage:
     _initialize_app_state(request.app)
@@ -255,6 +287,7 @@ def create_app() -> FastAPI:
                     "circuit_breaker": {
                         "state": telegram_circuit.state.value,
                     },
+                    "storage": _storage_health(app),
                 },
             )
         except TelegramError as exc:
@@ -267,6 +300,7 @@ def create_app() -> FastAPI:
                     "circuit_breaker": {
                         "state": telegram_circuit.state.value,
                     },
+                    "storage": _storage_health(app),
                 },
             )
 

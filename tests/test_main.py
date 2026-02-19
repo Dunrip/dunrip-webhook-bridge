@@ -62,6 +62,9 @@ def test_health_deep_success(monkeypatch) -> None:
     assert data["status"] == "ok"
     assert data["telegram"]["connected"] is True
     assert data["telegram"]["bot_username"] == "test_bot"
+    assert data["storage"]["configured_backend"] == "memory"
+    assert data["storage"]["effective_backend"] == "memory"
+    assert data["storage"]["fallback_active"] is False
 
 
 def test_health_deep_failure(monkeypatch) -> None:
@@ -82,6 +85,7 @@ def test_health_deep_failure(monkeypatch) -> None:
     data = response.json()
     assert data["status"] == "degraded"
     assert data["telegram"]["connected"] is False
+    assert "storage" in data
 
 
 def test_github_ping(monkeypatch) -> None:

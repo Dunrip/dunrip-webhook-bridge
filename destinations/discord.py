@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.core.config import settings
 from destinations.base import Destination, DestinationError
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class DiscordDestination(Destination):
                 resp = await self._http_client.post(self._webhook_url, json=body)
                 resp.raise_for_status()
             else:
-                async with httpx.AsyncClient(timeout=10) as client:
+                async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
                     resp = await client.post(self._webhook_url, json=body)
                     resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
