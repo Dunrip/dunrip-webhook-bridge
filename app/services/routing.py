@@ -41,6 +41,29 @@ from destinations.telegram import TelegramDestination
 logger = logging.getLogger(__name__)
 
 
+def _destination_flags() -> dict[str, bool]:
+    """Parse DESTINATION_FEATURE_FLAGS-like CSV from settings.
+
+    Format: "telegram=true,discord=false".
+    Unknown values default to enabled.
+    """
+    raw = getattr(settings, "destination_feature_flags", "")
+    flags: dict[str, bool] = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        name, value = item.split("=", 1)
+        normalized = value.strip().lower()
+        enabled = normalized in {"1", "true", "yes", "on"}
+        flags[name.strip().lower()] = enabled
+    return flags
+
+
+def _is_destination_enabled(name: str) -> bool:
+    return _destination_flags().get(name.strip().lower(), True)
+
+
 @dataclass
 class RouteFilter:
     """Criteria that must all match for a route to fire."""
@@ -123,8 +146,38 @@ def bootstrap_builtin_destinations(registry: DestinationRegistry | None = None) 
 _DESTINATION_REGISTRY = bootstrap_builtin_destinations()
 
 
+def register_destination(name: str, factory: Any) -> None:
+    """Register a custom/plugin destination factory in the global registry."""
+    _DESTINATION_REGISTRY.register(name, factory)
+
+
+def destination_health_snapshot() -> dict[str, Any]:
+    """Routing destination snapshot for deep health checks."""
+    registered = _DESTINATION_REGISTRY.list_registered()
+    active: list[str] = []
+
+    for name in registered:
+        if not _is_destination_enabled(name):
+            continue
+        if name == "discord" and not settings.discord_webhook_url:
+            continue
+        if name == "slack" and not settings.slack_webhook_url:
+            continue
+        active.append(name)
+
+    return {
+        "registered": registered,
+        "active": active,
+        "fallback_safe": True,
+    }
+
+
 def _build_destination(name: str, http_client: httpx.AsyncClient | None = None) -> Destination | None:
     """Instantiate a destination by name via registry lookup."""
+    if not _is_destination_enabled(name):
+        logger.info("Destination %r disabled by feature flag", name)
+        return None
+
     factory = _DESTINATION_REGISTRY.get(name)
     if factory is None:
         logger.warning("Unknown destination %r in route config", name)

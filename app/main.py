@@ -25,7 +25,7 @@ from app.infra.middleware import RequestContextMiddleware, RateLimitMiddleware, 
 from app.observability.observability import RequestContextFilter
 from app.models.models import GenericWebhookPayload
 from app.api.replay import router as replay_router
-from app.services.routing import load_routes, route_event
+from app.services.routing import destination_health_snapshot, load_routes, route_event
 from app.api.sandbox import router as sandbox_router
 from app.core.security import describe_admin_auth_mode, verify_generic_token, verify_github_signature
 from app.infra.storage import FallbackStorage, Redis, RedisError, Storage, create_storage_backend
@@ -105,6 +105,12 @@ CIRCUIT_BREAKER_STATE = _get_or_create_counter(
     "circuit_breaker_state_changes_total",
     "Circuit breaker state changes",
     ["from_state", "to_state"]
+)
+
+ROUTE_DESTINATION_DELIVERIES = _get_or_create_counter(
+    "route_destination_deliveries_total",
+    "Per-destination delivery outcomes",
+    ["destination", "status"],
 )
 
 
@@ -288,6 +294,7 @@ def create_app() -> FastAPI:
                         "state": telegram_circuit.state.value,
                     },
                     "storage": _storage_health(app),
+                    "destinations": destination_health_snapshot(),
                 },
             )
         except TelegramError as exc:
@@ -301,6 +308,7 @@ def create_app() -> FastAPI:
                         "state": telegram_circuit.state.value,
                     },
                     "storage": _storage_health(app),
+                    "destinations": destination_health_snapshot(),
                 },
             )
 
@@ -395,6 +403,12 @@ def create_app() -> FastAPI:
                 payload,
                 http_client=request.app.state.http,
             )
+            for result in results:
+                ROUTE_DESTINATION_DELIVERIES.labels(
+                    destination=result.get("destination", "unknown"),
+                    status=result.get("status", "unknown"),
+                ).inc()
+
             any_sent = any(r["status"] == "sent" for r in results)
             any_failed = any(r["status"] == "failed" for r in results)
 
@@ -528,6 +542,12 @@ def create_app() -> FastAPI:
                 payload_dict,
                 http_client=request.app.state.http,
             )
+            for result in results:
+                ROUTE_DESTINATION_DELIVERIES.labels(
+                    destination=result.get("destination", "unknown"),
+                    status=result.get("status", "unknown"),
+                ).inc()
+
             any_sent = any(r["status"] == "sent" for r in results)
             any_failed = any(r["status"] == "failed" for r in results)
 

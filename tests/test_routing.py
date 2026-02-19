@@ -12,6 +12,7 @@ from app.services.routing import (
     _extract_branch,
     _build_destination,
     bootstrap_builtin_destinations,
+    destination_health_snapshot,
     load_routes,
     route_event,
 )
@@ -178,6 +179,22 @@ class TestDestinationBootstrap:
         assert isinstance(dest, FakeDestination)
         assert dest.name == "from-registry"
         assert calls == [{"http_client": None}]
+
+    def test_destination_feature_flag_disables_destination(self, monkeypatch):
+        monkeypatch.setattr("app.services.routing.settings.destination_feature_flags", "telegram=false")
+
+        assert _build_destination("telegram") is None
+
+    def test_destination_health_snapshot(self, monkeypatch):
+        monkeypatch.setattr("app.services.routing.settings.destination_feature_flags", "slack=false")
+        monkeypatch.setattr("app.services.routing.settings.discord_webhook_url", "")
+
+        snap = destination_health_snapshot()
+
+        assert "telegram" in snap["registered"]
+        assert "telegram" in snap["active"]
+        assert "slack" not in snap["active"]
+        assert snap["fallback_safe"] is True
 
 
 class FakeDestination(Destination):
