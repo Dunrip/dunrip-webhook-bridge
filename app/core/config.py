@@ -59,6 +59,7 @@ class Settings(BaseSettings):
 
     # Multi-destination routing
     routes_yaml: str = ""  # Path to YAML routing config or inline YAML
+    destination_feature_flags: str = ""  # CSV: telegram=true,discord=false
 
     # Discord destination
     discord_webhook_url: str = ""

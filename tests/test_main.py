@@ -65,6 +65,10 @@ def test_health_deep_success(monkeypatch) -> None:
     assert data["storage"]["configured_backend"] == "memory"
     assert data["storage"]["effective_backend"] == "memory"
     assert data["storage"]["fallback_active"] is False
+    assert "destinations" in data
+    assert "registered" in data["destinations"]
+    assert "active" in data["destinations"]
+    assert data["destinations"]["fallback_safe"] is True
 
 
 def test_health_deep_failure(monkeypatch) -> None:
@@ -86,6 +90,7 @@ def test_health_deep_failure(monkeypatch) -> None:
     assert data["status"] == "degraded"
     assert data["telegram"]["connected"] is False
     assert "storage" in data
+    assert "destinations" in data
 
 
 def test_github_ping(monkeypatch) -> None:
