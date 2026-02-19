@@ -32,6 +32,7 @@ import httpx
 import yaml
 
 from app.core.config import settings
+from destinations import DestinationRegistry
 from destinations.base import Destination, DestinationError
 from destinations.discord import DiscordDestination
 from destinations.slack import SlackDestination
@@ -94,24 +95,41 @@ def _extract_branch(event_type: str, payload: dict[str, Any]) -> str:
     return ""
 
 
-def _build_destination(name: str, http_client: httpx.AsyncClient | None = None) -> Destination | None:
-    """Instantiate a destination by name, using current settings."""
-    if name == "telegram":
-        return TelegramDestination()
-    if name == "discord":
+def bootstrap_builtin_destinations(registry: DestinationRegistry | None = None) -> DestinationRegistry:
+    """Register built-in destinations and return a ready registry."""
+    target = registry or DestinationRegistry()
+
+    target.register("telegram", lambda **kwargs: TelegramDestination())
+
+    def _discord_factory(**kwargs) -> Destination | None:
         url = settings.discord_webhook_url
         if not url:
             logger.warning("Route references 'discord' but DISCORD_WEBHOOK_URL is not set")
             return None
-        return DiscordDestination(url, http_client=http_client)
-    if name == "slack":
+        return DiscordDestination(url, http_client=kwargs.get("http_client"))
+
+    def _slack_factory(**kwargs) -> Destination | None:
         url = settings.slack_webhook_url
         if not url:
             logger.warning("Route references 'slack' but SLACK_WEBHOOK_URL is not set")
             return None
-        return SlackDestination(url, http_client=http_client)
-    logger.warning("Unknown destination %r in route config", name)
-    return None
+        return SlackDestination(url, http_client=kwargs.get("http_client"))
+
+    target.register("discord", _discord_factory)
+    target.register("slack", _slack_factory)
+    return target
+
+
+_DESTINATION_REGISTRY = bootstrap_builtin_destinations()
+
+
+def _build_destination(name: str, http_client: httpx.AsyncClient | None = None) -> Destination | None:
+    """Instantiate a destination by name via registry lookup."""
+    factory = _DESTINATION_REGISTRY.get(name)
+    if factory is None:
+        logger.warning("Unknown destination %r in route config", name)
+        return None
+    return factory(http_client=http_client)
 
 
 def load_routes(yaml_source: str | None = None) -> list[Route]:
