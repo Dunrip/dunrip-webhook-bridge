@@ -3,9 +3,10 @@
 import logging
 import threading
 import time
+from collections.abc import Callable
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from app.core.config import settings
 from app.core.exceptions import CircuitBreakerError
@@ -16,8 +17,8 @@ T = TypeVar("T")
 
 
 class CircuitState(Enum):
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Failing, reject fast
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, reject fast
     HALF_OPEN = "half_open"  # Testing if recovered
 
 
@@ -39,17 +40,17 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold or settings.circuit_breaker_threshold
         self.timeout = timeout or settings.circuit_breaker_timeout
         self.half_open_max_calls = max(1, half_open_max_calls)
-        
+
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._last_failure_time: float | None = None
         self._half_open_in_flight = 0
         self._lock = threading.Lock()
-        
+
     @property
     def state(self) -> CircuitState:
         return self._state
-        
+
     def _transition_to(self, new_state: CircuitState) -> None:
         """Transition to a new state and emit metrics if available."""
         old_state = self._state
@@ -57,33 +58,28 @@ class CircuitBreaker:
             self._state = new_state
             # Emit metrics if prometheus client is available
             try:
-                from prometheus_client import REGISTRY, Counter
+                from prometheus_client import Counter
+
                 metric_name = "circuit_breaker_state_changes_total"
-                # Check if metric already exists in registry
-                if metric_name not in REGISTRY._names_to_collectors:
-                    CIRCUIT_BREAKER_STATE = Counter(
-                        metric_name,
-                        "Circuit breaker state changes",
-                        ["from_state", "to_state"]
-                    )
-                else:
-                    CIRCUIT_BREAKER_STATE = REGISTRY._names_to_collectors[metric_name]
-                CIRCUIT_BREAKER_STATE.labels(
-                    from_state=old_state.value, to_state=new_state.value
-                ).inc()
+                try:
+                    counter = Counter(metric_name, "Circuit breaker state changes", ["from_state", "to_state"])
+                except ValueError:
+                    from prometheus_client import REGISTRY
+
+                    counter = REGISTRY._names_to_collectors.get(metric_name)  # type: ignore[assignment]  # noqa: SLF001
+                    if counter is None:
+                        raise
+                counter.labels(from_state=old_state.value, to_state=new_state.value).inc()
             except ImportError:
                 pass  # Metrics not available during tests
-        
+
     def _trip(self) -> None:
         """Trip the circuit to OPEN."""
         self._transition_to(CircuitState.OPEN)
         self._last_failure_time = time.time()
         self._half_open_in_flight = 0
-        logger.warning(
-            "Circuit breaker TRIPPED to OPEN (threshold=%d)",
-            self.failure_threshold
-        )
-        
+        logger.warning("Circuit breaker TRIPPED to OPEN (threshold=%d)", self.failure_threshold)
+
     def _reset(self) -> None:
         """Reset to CLOSED."""
         self._transition_to(CircuitState.CLOSED)
@@ -91,7 +87,7 @@ class CircuitBreaker:
         self._last_failure_time = None
         self._half_open_in_flight = 0
         logger.info("Circuit breaker RESET to CLOSED")
-        
+
     def _try_transition_to_half_open(self) -> bool:
         """Check if we should try half-open state.
 
@@ -157,16 +153,15 @@ class CircuitBreaker:
                 return True
 
             return False
-        
+
     def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
         """Decorator to wrap a function with circuit breaker."""
+
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> T:
             if not self.can_execute():
-                raise CircuitBreakerOpenError(
-                    f"Circuit breaker is OPEN (timeout={self.timeout}s)"
-                )
-                
+                raise CircuitBreakerOpenError(f"Circuit breaker is OPEN (timeout={self.timeout}s)")
+
             try:
                 result = await func(*args, **kwargs)
                 self.record_success()
@@ -175,7 +170,7 @@ class CircuitBreaker:
                 if self.record_failure():
                     logger.error("Circuit breaker tripped due to: %s", exc)
                 raise
-                
+
         return async_wrapper  # type: ignore[return-value]
 
 

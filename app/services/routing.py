@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-
 import yaml
 
 from app.core.config import settings
@@ -138,8 +137,8 @@ def bootstrap_builtin_destinations(registry: DestinationRegistry | None = None) 
             return None
         return SlackDestination(url, http_client=kwargs.get("http_client"))
 
-    target.register("discord", _discord_factory)
-    target.register("slack", _slack_factory)
+    target.register("discord", _discord_factory)  # type: ignore[arg-type]
+    target.register("slack", _slack_factory)  # type: ignore[arg-type]
     return target
 
 

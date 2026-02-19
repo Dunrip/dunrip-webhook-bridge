@@ -31,7 +31,9 @@ def classify_failure(*, status_code: int | None = None, error: Exception | None 
     return RetryDecision("ok", False, "success")
 
 
-def backoff_with_jitter(attempt: int, *, base_seconds: float = 1.0, max_seconds: float = 60.0, jitter_ratio: float = 0.2) -> float:
+def backoff_with_jitter(
+    attempt: int, *, base_seconds: float = 1.0, max_seconds: float = 60.0, jitter_ratio: float = 0.2
+) -> float:
     raw = min(max_seconds, base_seconds * (2 ** max(0, attempt - 1)))
     spread = raw * jitter_ratio
     return max(0.0, raw + random.uniform(-spread, spread))

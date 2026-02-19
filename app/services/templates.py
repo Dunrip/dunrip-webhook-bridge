@@ -5,8 +5,6 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
 
 # Default templates directory (built-in)

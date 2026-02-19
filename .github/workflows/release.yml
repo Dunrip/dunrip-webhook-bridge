@@ -10,7 +10,37 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests
+        env:
+          TELEGRAM_BOT_TOKEN: test-bot-token
+          TELEGRAM_CHAT_ID: test-chat-id
+          GITHUB_WEBHOOK_SECRET: test-github-secret
+          GENERIC_WEBHOOK_TOKEN: test-generic-token
+          ADMIN_API_KEY: test-admin-key
+        run: uv run pytest tests/
+
   security-gates:
+    needs: [test]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

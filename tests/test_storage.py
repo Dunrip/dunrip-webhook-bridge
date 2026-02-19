@@ -83,7 +83,9 @@ class _FailingStorage:
     async def update_failed_delivery(self, failed_id: str, updates) -> None:
         raise RedisError("down")
 
-    async def upsert_delivery_ledger(self, provider: str, inbound_delivery_id: str, payload_hash: str, status: str, reason=None):
+    async def upsert_delivery_ledger(
+        self, provider: str, inbound_delivery_id: str, payload_hash: str, status: str, reason=None
+    ):
         raise RedisError("down")
 
     async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str):

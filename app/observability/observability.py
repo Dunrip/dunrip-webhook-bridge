@@ -45,7 +45,8 @@ def audit_log(
 ) -> None:
     """Emit structured audit event for sensitive admin actions."""
     logger.info(
-        "admin_audit action=%s request_id=%s client_ip=%s auth_result=%s delivery_id=%s status=%s actor_key_id=%s reason=%s",
+        "admin_audit action=%s request_id=%s client_ip=%s auth_result=%s "
+        "delivery_id=%s status=%s actor_key_id=%s reason=%s",
         action,
         request_id,
         client_ip,

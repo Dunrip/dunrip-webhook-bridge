@@ -13,12 +13,12 @@ from typing import Any
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app.core.config import settings
-from app.observability.observability import audit_log
 from app.core.security import (
     authenticate_admin_api_key_headers,
     get_websocket_client_ip,
     is_ws_ip_allowed,
 )
+from app.observability.observability import audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,10 @@ class EventBroadcaster:
         if settings.ws_connects_per_minute > 0 and count > settings.ws_connects_per_minute:
             return False, "connect_rate_limited"
 
-        if settings.ws_max_connections_per_ip > 0 and self._connections_per_ip[ip] >= settings.ws_max_connections_per_ip:
+        if (
+            settings.ws_max_connections_per_ip > 0
+            and self._connections_per_ip[ip] >= settings.ws_max_connections_per_ip
+        ):
             return False, "max_connections_per_ip_exceeded"
 
         return True, "ok"

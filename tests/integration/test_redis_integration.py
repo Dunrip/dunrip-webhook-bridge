@@ -4,7 +4,6 @@ import pytest
 
 from app.infra.storage import RedisStorage
 
-
 pytestmark = pytest.mark.integration
 
 

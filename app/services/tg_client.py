@@ -8,8 +8,8 @@ from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import NetworkError, RetryAfter, TimedOut
 
-from app.infra.circuit_breaker import telegram_circuit
 from app.core.config import settings
+from app.infra.circuit_breaker import telegram_circuit
 from app.observability.observability import get_request_id
 
 logger = logging.getLogger(__name__)
@@ -105,8 +105,7 @@ async def send_message(
     # Check circuit breaker first
     if not telegram_circuit.can_execute():
         raise TelegramSendError(
-            f"Circuit breaker is OPEN - Telegram service appears down "
-            f"(will retry in {telegram_circuit.timeout}s)"
+            f"Circuit breaker is OPEN - Telegram service appears down (will retry in {telegram_circuit.timeout}s)"
         )
 
     for attempt in range(retries + 1):
@@ -119,7 +118,7 @@ async def send_message(
             telegram_circuit.record_success()
             return
         except RetryAfter as exc:
-            wait_seconds = float(exc.retry_after)
+            wait_seconds = float(exc.retry_after)  # type: ignore[arg-type]
             if attempt == retries:
                 telegram_circuit.record_failure()
                 logger.exception("Telegram rate limited after retries")

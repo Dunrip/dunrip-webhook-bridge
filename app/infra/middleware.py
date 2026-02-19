@@ -8,8 +8,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.errors import ErrorCode
-from app.observability.observability import new_request_id, request_id_ctx
 from app.core.security import get_client_ip
+from app.observability.observability import new_request_id, request_id_ctx
 
 try:
     from redis import RedisError
@@ -20,12 +20,12 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in no-network envs
     class RedisError(Exception):
         pass
 
+
 logger = logging.getLogger(__name__)
 
 
 class RateLimitBackend(Protocol):
-    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
-        ...
+    async def increment(self, key: str, window_seconds: int) -> tuple[int, int]: ...
 
 
 class MemoryRateLimitBackend:
@@ -137,11 +137,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if is_webhook and self._ip_limit_per_minute > 0:
             checks.append((f"ip:{path}:{ip}", self._ip_limit_per_minute, "Rate limit exceeded"))
 
-        if (
-            path == "/webhook/generic"
-            and self._token_limit_per_minute > 0
-            and request.headers.get("x-webhook-token")
-        ):
+        if path == "/webhook/generic" and self._token_limit_per_minute > 0 and request.headers.get("x-webhook-token"):
             token = request.headers["x-webhook-token"]
             checks.append((f"token:{path}:{token}", self._token_limit_per_minute, "Rate limit exceeded"))
 

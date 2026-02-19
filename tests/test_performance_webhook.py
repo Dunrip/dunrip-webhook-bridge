@@ -25,7 +25,7 @@ def test_webhook_processing_light_benchmark(monkeypatch) -> None:
     async def fake_send(_: str) -> None:
         return None
 
-    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr("app.services.webhook_dispatch.send_message", fake_send)
 
     app = main.create_app()
     payload = json.dumps({"repository": {"full_name": "org/repo"}, "commits": []}).encode()
