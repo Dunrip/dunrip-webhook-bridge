@@ -16,7 +16,7 @@
 > make first-run
 > ```
 
-Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram.
+Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram-first destinations (Discord/Slack adapters are in progress).
 
 ## Quick Navigation
 
@@ -82,6 +82,12 @@ Then follow the full setup guides:
 - Sends formatted notifications to Telegram
 - Supports replay of failed deliveries
 - Exposes health and metrics endpoints for operations
+
+### Channel Support Status
+
+- ✅ **Telegram:** fully supported and production-ready
+- 🚧 **Discord:** adapter scaffold present; full production wiring in progress
+- 🚧 **Slack:** adapter scaffold present; full production wiring in progress
 
 ---
 
