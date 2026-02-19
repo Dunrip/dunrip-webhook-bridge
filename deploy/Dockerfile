@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+# requirements.txt includes `-e .` (editable install), so project metadata and
+# package source must be present at install time.
+COPY requirements.txt pyproject.toml README.md ./
+COPY app ./app
+COPY destinations ./destinations
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Runtime stage
