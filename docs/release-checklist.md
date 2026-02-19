@@ -27,6 +27,7 @@ Examples:
 - [ ] `Security - Dependency Scan` workflow is green for commit/tag to release
 - [ ] `Security - Secrets Scan` workflow is green for commit/tag to release
 - [ ] No unresolved Critical/High vulnerabilities without explicit risk acceptance
+- [ ] Trivy gate mode is `blocking-release` for tag builds and findings are reviewed against `docs/ops/trivy-ghcr-policy.md`
 - [ ] Security remediation SLA impact reviewed against `SECURITY.md`
 
 ## Release prep

@@ -1,0 +1,13 @@
+# Trivy suppression baseline for GHCR image scanning
+#
+# Rules:
+# 1) Every ignored CVE MUST have:
+#    - owner
+#    - reason
+#    - tracking issue/PR
+#    - expiry date (UTC)
+# 2) Expired suppressions must be removed or renewed with updated justification.
+# 3) Keep this file short and review it during each release.
+#
+# Example (uncomment + update fields):
+# CVE-2026-12345 # owner=@dunrip reason=upstream-fix-pending issue=#123 expires=2026-03-31
