@@ -1,6 +1,9 @@
 # Dunrip Webhook Bridge
 
 [![CI](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/Dunrip/dunrip-webhook-bridge/branch/main/graph/badge.svg)](https://codecov.io/gh/Dunrip/dunrip-webhook-bridge)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Docker Hygiene](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/docker-hygiene.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/docker-hygiene.yml)
 [![Dependency Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-deps.yml)
 [![Secrets Scan](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml/badge.svg)](https://github.com/Dunrip/dunrip-webhook-bridge/actions/workflows/security-secrets.yml)
 [![Latest Release](https://img.shields.io/github/v/release/Dunrip/dunrip-webhook-bridge?display_name=tag)](https://github.com/Dunrip/dunrip-webhook-bridge/releases/latest)
@@ -59,13 +62,16 @@ Commits: 3
 🔗 [View diff](https://github.com/...)
 ```
 
-## Vercel Deployment
+## Deployment
 
 Deploy in one click:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Dunrip/dunrip-webhook-bridge)
 
-Then follow the full setup guide: [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
+Then follow the full setup guides:
+- Vercel: [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
+- Render: [`docs/deploy-render.md`](docs/deploy-render.md)
 
 ---
 
@@ -187,7 +193,7 @@ make down         # stop services
 ---
 
 
-## Deployment
+## Deployment Modes
 
 - **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
   - For production reliability on serverless, use Redis-backed state (`STORAGE_BACKEND=redis`, `RATE_LIMIT_BACKEND=redis`).
