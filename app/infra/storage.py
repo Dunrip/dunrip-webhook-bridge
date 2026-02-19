@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 try:
@@ -431,19 +432,40 @@ class FallbackStorage:
     def __init__(self, primary: Storage, fallback: Storage) -> None:
         self._primary = primary
         self._fallback = fallback
-        self._warned = False
+        self._fallback_active = False
+        self._fallback_reason: str | None = None
+        self._fallback_since: str | None = None
+
+    def _activate_fallback(self, operation: str, exc: Exception) -> None:
+        if not self._fallback_active:
+            self._fallback_active = True
+            self._fallback_reason = str(exc)
+            self._fallback_since = datetime.now(timezone.utc).isoformat()
+            logger.error(
+                "Primary Redis storage unavailable, enabling memory fallback operation=%s error=%s",
+                operation,
+                exc,
+            )
+            return
+        logger.warning(
+            "Using memory fallback for storage operation=%s error=%s",
+            operation,
+            exc,
+        )
+
+    def fallback_state(self) -> dict[str, str | bool | None]:
+        return {
+            "active": self._fallback_active,
+            "reason": self._fallback_reason,
+            "since": self._fallback_since,
+        }
 
     async def is_duplicate_delivery(self, delivery_id: str | None) -> bool:
         """Check idempotency using primary storage, then fallback if needed."""
         try:
             return await self._primary.is_duplicate_delivery(delivery_id)
         except RedisError as exc:
-            if not self._warned:
-                logger.warning(
-                    "Primary Redis storage unavailable, falling back to memory: %s",
-                    exc,
-                )
-                self._warned = True
+            self._activate_fallback("is_duplicate_delivery", exc)
             return await self._fallback.is_duplicate_delivery(delivery_id)
 
     async def is_duplicate_replay_operation(self, operation_key: str, ttl_seconds: int) -> bool:
@@ -451,12 +473,7 @@ class FallbackStorage:
         try:
             return await self._primary.is_duplicate_replay_operation(operation_key, ttl_seconds)
         except RedisError as exc:
-            if not self._warned:
-                logger.warning(
-                    "Primary Redis storage unavailable, falling back to memory: %s",
-                    exc,
-                )
-                self._warned = True
+            self._activate_fallback("is_duplicate_replay_operation", exc)
             return await self._fallback.is_duplicate_replay_operation(operation_key, ttl_seconds)
 
     async def store_failed_delivery(
@@ -479,12 +496,7 @@ class FallbackStorage:
                 delivery_id=delivery_id,
             )
         except RedisError as exc:
-            if not self._warned:
-                logger.warning(
-                    "Primary Redis storage unavailable, falling back to memory: %s",
-                    exc,
-                )
-                self._warned = True
+            self._activate_fallback("store_failed_delivery", exc)
             return await self._fallback.store_failed_delivery(
                 source=source,
                 event_type=event_type,
@@ -504,28 +516,32 @@ class FallbackStorage:
         """List failed deliveries with fallback behavior."""
         try:
             return await self._primary.list_failed_deliveries(source, status, limit, offset)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("list_failed_deliveries", exc)
             return await self._fallback.list_failed_deliveries(source, status, limit, offset)
 
     async def get_failed_delivery(self, failed_id: str) -> dict[str, Any] | None:
         """Get failed delivery by ID with fallback behavior."""
         try:
             return await self._primary.get_failed_delivery(failed_id)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("get_failed_delivery", exc)
             return await self._fallback.get_failed_delivery(failed_id)
 
     async def update_failed_delivery_status(self, failed_id: str, status: str) -> None:
         """Update failed delivery status with fallback behavior."""
         try:
             await self._primary.update_failed_delivery_status(failed_id, status)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("update_failed_delivery_status", exc)
             await self._fallback.update_failed_delivery_status(failed_id, status)
 
     async def update_failed_delivery(self, failed_id: str, updates: Mapping[str, Any]) -> None:
         """Apply partial updates with fallback behavior."""
         try:
             await self._primary.update_failed_delivery(failed_id, updates)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("update_failed_delivery", exc)
             await self._fallback.update_failed_delivery(failed_id, updates)
 
     async def upsert_delivery_ledger(
@@ -538,13 +554,15 @@ class FallbackStorage:
     ) -> dict[str, Any]:
         try:
             return await self._primary.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("upsert_delivery_ledger", exc)
             return await self._fallback.upsert_delivery_ledger(provider, inbound_delivery_id, payload_hash, status, reason)
 
     async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
         try:
             return await self._primary.get_delivery_ledger(provider, inbound_delivery_id)
-        except RedisError:
+        except RedisError as exc:
+            self._activate_fallback("get_delivery_ledger", exc)
             return await self._fallback.get_delivery_ledger(provider, inbound_delivery_id)
 
 

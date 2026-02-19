@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     storage_backend: str = "memory"  # memory | redis
     redis_url: str = "redis://redis:6379/0"
     redis_key_prefix: str = "webhook_bridge"
+
+    # Outbound HTTP behavior
+    http_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
 
     # Circuit breaker settings
     circuit_breaker_threshold: int = 5  # Failures before opening

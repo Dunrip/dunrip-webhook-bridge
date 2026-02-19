@@ -94,6 +94,7 @@ def test_fallback_storage_uses_memory_when_primary_fails() -> None:
     memory = MemoryStorage(idempotency_ttl=3600)
     storage = FallbackStorage(primary=_FailingStorage(), fallback=memory)
 
+    assert storage.fallback_state()["active"] is False
     assert asyncio.run(storage.is_duplicate_delivery("dup-1")) is False
     assert asyncio.run(storage.is_duplicate_delivery("dup-1")) is True
 
@@ -105,3 +106,7 @@ def test_fallback_storage_uses_memory_when_primary_fails() -> None:
         )
     )
     assert failed_id in memory.failed_deliveries
+    state = storage.fallback_state()
+    assert state["active"] is True
+    assert state["reason"] == "down"
+    assert state["since"] is not None
