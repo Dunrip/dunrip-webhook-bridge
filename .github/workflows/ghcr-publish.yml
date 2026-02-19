@@ -49,7 +49,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
-            type=sha,prefix=sha-
+            type=sha,prefix=sha-,format=long
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
