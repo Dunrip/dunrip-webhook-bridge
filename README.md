@@ -204,9 +204,22 @@ make down         # stop services
 | `/metrics` | GET | None | Prometheus metrics export |
 | `/deliveries` | GET | Admin API key (`read+`) | List failed deliveries |
 | `/deliveries/{id}/replay` | POST | Admin API key (`replay+`) | Replay one failed delivery |
-| `/deliveries/replay-all` | POST | Admin API key (`replay+`) | Replay eligible failed deliveries |
+| `/deliveries/replay-all` | POST | Admin API key (`replay+`) | Queue replay for eligible failed deliveries (async) |
 | `/stream/logs` | WS | Admin API key (`read+`) | Stream operational events/log metadata |
 
+### Replay-all behavior (important)
+
+`POST /deliveries/replay-all` is asynchronous and returns acceptance, not completion:
+
+```json
+{
+  "status": "accepted",
+  "queued": 12
+}
+```
+
+Use delivery status queries, logs, and metrics to verify replay completion. Full operator guidance:
+[`docs/ops/replay-operations.md`](docs/ops/replay-operations.md).
 
 ---
 
