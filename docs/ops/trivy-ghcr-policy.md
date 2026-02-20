@@ -7,7 +7,9 @@ This policy defines how container vulnerability findings are handled in `Publish
 - Scanner: Trivy (`aquasecurity/trivy-action`)
 - Artifact: `ghcr.io/dunrip/dunrip-webhook-bridge`
 - Findings scope: `CRITICAL,HIGH`
+- Scanners: `vuln` (OS + library vulnerabilities)
 - `ignore-unfixed: true` (focus on actionable fixes)
+- Secret scanning remains covered by `Security - Secrets Scan` (gitleaks)
 
 ## Gate Modes
 
