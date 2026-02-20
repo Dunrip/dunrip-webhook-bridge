@@ -244,6 +244,32 @@ class TestRouteEvent:
         results = await route_event(routes, "hello", "push", {})
         assert results[0]["status"] == "failed"
         assert "error" in results[0]
+        assert results[0]["error_classification"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_failed_destination_exposes_error_metadata(self, monkeypatch):
+        class ClassifiedDestination(FakeDestination):
+            async def send(self, message, *, event_type, payload):
+                raise DestinationError(
+                    "discord",
+                    "HTTP 429",
+                    classification="rate_limit",
+                    retryable=True,
+                    retry_after_seconds=1.0,
+                    status_code=429,
+                )
+
+        dest = ClassifiedDestination("discord")
+        monkeypatch.setattr("app.services.routing._build_destination", lambda name, **kwargs: dest)
+
+        routes = [Route(name="r", destination_name="discord")]
+        results = await route_event(routes, "hello", "push", {})
+
+        assert results[0]["status"] == "failed"
+        assert results[0]["error_classification"] == "rate_limit"
+        assert results[0]["retryable"] is True
+        assert results[0]["retry_after_seconds"] == 1.0
+        assert results[0]["status_code"] == 429
 
     @pytest.mark.asyncio
     async def test_none_destination_skipped(self, monkeypatch):
@@ -324,9 +350,18 @@ class TestRouteEvent:
         results = await route_event(routes, "msg", "push", {})
 
         assert results[0] == {"route": "s", "destination": "telegram", "status": "sent"}
-        assert set(results[1].keys()) == {"route", "destination", "status", "error"}
+        assert set(results[1].keys()) == {
+            "route",
+            "destination",
+            "status",
+            "error",
+            "error_classification",
+            "retryable",
+        }
         assert results[1]["route"] == "f"
         assert results[1]["destination"] == "discord"
         assert results[1]["status"] == "failed"
         assert isinstance(results[1]["error"], str)
+        assert results[1]["error_classification"] == "unknown"
+        assert results[1]["retryable"] is False
         assert results[2] == {"route": "k", "destination": "unknown", "status": "skipped"}

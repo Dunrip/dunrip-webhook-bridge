@@ -243,13 +243,13 @@ async def route_event(
     event_type: str,
     payload: dict[str, Any],
     http_client: httpx.AsyncClient | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Evaluate all routes and deliver *message* to matching destinations.
 
     Returns a list of ``{"destination": ..., "status": "sent"|"failed", ...}``
     dicts for observability.
     """
-    results: list[dict[str, str]] = []
+    results: list[dict[str, Any]] = []
 
     for route in routes:
         if not route.filter.matches(event_type, payload):
@@ -265,6 +265,18 @@ async def route_event(
             results.append({"route": route.name, "destination": dest.name, "status": "sent"})
         except DestinationError as exc:
             logger.error("Route %r delivery to %s failed: %s", route.name, dest.name, exc)
-            results.append({"route": route.name, "destination": dest.name, "status": "failed", "error": str(exc)})
+            result: dict[str, Any] = {
+                "route": route.name,
+                "destination": dest.name,
+                "status": "failed",
+                "error": str(exc),
+                "error_classification": exc.classification,
+                "retryable": exc.retryable,
+            }
+            if exc.status_code is not None:
+                result["status_code"] = exc.status_code
+            if exc.retry_after_seconds is not None:
+                result["retry_after_seconds"] = exc.retry_after_seconds
+            results.append(result)
 
     return results

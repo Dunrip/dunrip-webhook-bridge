@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Outbound HTTP behavior
     http_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
 
+    # Destination delivery retry behavior
+    destination_max_retries: int = Field(default=2, ge=0, le=6)
+    destination_retry_base_seconds: float = Field(default=0.5, ge=0.0, le=10.0)
+    destination_retry_max_seconds: float = Field(default=5.0, ge=0.1, le=60.0)
+
     # Circuit breaker settings
     circuit_breaker_threshold: int = 5  # Failures before opening
     circuit_breaker_timeout: int = 60  # Seconds before half-open
