@@ -65,8 +65,10 @@ Commits: 3
 
 Deploy in one click:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge&env=TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GITHUB_WEBHOOK_SECRET,GENERIC_WEBHOOK_TOKEN,ADMIN_API_KEYS,STORAGE_BACKEND,RATE_LIMIT_BACKEND,REDIS_URL&envDescription=Telegram%20bot%20token,Telegram%20destination%20chat%20ID,GitHub%20webhook%20secret,Generic%20webhook%20token,Scoped%20admin%20keys%20CSV,Storage%20backend%20(memory%20or%20redis),Rate-limit%20backend%20(memory%20or%20redis),Redis%20connection%20URL)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Dunrip/dunrip-webhook-bridge)
+
+Redis edge-case: if either backend is set to `redis`, make sure `REDIS_URL` is set as well.
 
 Then follow the full setup guides:
 - Vercel: [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
