@@ -81,6 +81,7 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: ${{ steps.trivy_mode.outputs.exit_code }}
           ignore-unfixed: true
+          scanners: vuln
           trivyignores: .trivyignore
 
       - name: Trivy gate summary

@@ -1,12 +1,13 @@
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies + refresh packaging toolchain to patched versions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Install Python dependencies
 # requirements.txt includes `-e .` (editable install), so project metadata and
@@ -20,6 +21,9 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 FROM python:3.11-slim
 
 WORKDIR /app
+
+# Refresh packaging toolchain in final image to avoid known CVEs reported by Trivy
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
