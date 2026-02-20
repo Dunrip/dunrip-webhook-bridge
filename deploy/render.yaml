@@ -15,14 +15,16 @@ services:
         sync: false
       - key: GENERIC_WEBHOOK_TOKEN
         sync: false
-      - key: ADMIN_API_KEY
+      - key: ADMIN_API_KEYS
         sync: false
       - key: LOG_LEVEL
         value: INFO
       - key: STORAGE_BACKEND
-        value: memory
+        sync: false
       - key: RATE_LIMIT_BACKEND
-        value: memory
+        sync: false
+      - key: REDIS_URL
+        sync: false
 
 # Optional Redis (uncomment if you want persistent storage/rate limits):
 # services:

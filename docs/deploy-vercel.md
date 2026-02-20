@@ -6,6 +6,11 @@ This project supports Vercel via `api/index.py` + `vercel.json`. Canonical deplo
 
 ## 1) Import project to Vercel
 
+Use the one-click prefilled link (recommended):
+
+- https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge&env=TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GITHUB_WEBHOOK_SECRET,GENERIC_WEBHOOK_TOKEN,ADMIN_API_KEYS,STORAGE_BACKEND,RATE_LIMIT_BACKEND,REDIS_URL&envDescription=Telegram%20bot%20token,Telegram%20destination%20chat%20ID,GitHub%20webhook%20secret,Generic%20webhook%20token,Scoped%20admin%20keys%20CSV,Storage%20backend%20(memory%20or%20redis),Rate-limit%20backend%20(memory%20or%20redis),Redis%20connection%20URL
+
+Or manual flow:
 1. Go to https://vercel.com/new
 2. Import `Dunrip/dunrip-webhook-bridge`
 3. Keep default framework settings (Vercel will detect Python via `api/index.py`)
@@ -20,12 +25,20 @@ In **Project Settings → Environment Variables**, add at minimum:
 - `GENERIC_WEBHOOK_TOKEN`
 - `ADMIN_API_KEYS` (recommended) or `ADMIN_API_KEY`
 
-Optional but strongly recommended:
+Optional but strongly recommended (production):
 
 - `STORAGE_BACKEND=redis`
 - `RATE_LIMIT_BACKEND=redis`
 - `REDIS_URL=<Upstash/Redis URL>`
 
+If you stay on memory mode (quick tests / low-stakes usage):
+
+- `STORAGE_BACKEND=memory`
+- `RATE_LIMIT_BACKEND=memory`
+- `REDIS_URL` can be omitted
+
+> Redis edge case: if either backend is set to `redis`, you must set `REDIS_URL` or the app will attempt default local Redis and fall back to memory with degraded durability.
+>
 > On serverless, use Redis-backed state for production reliability. In-memory state resets between invocations and can break idempotency, replay history, and queue durability.
 
 ## 3) Deploy

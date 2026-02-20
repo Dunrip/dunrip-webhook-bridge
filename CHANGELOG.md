@@ -29,3 +29,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added release checklist smoke verification expansion and operational guidance.
 - Added replay operations guide with replay-all semantics and verification workflow: `docs/ops/replay-operations.md`.
 - Added Trivy GHCR gate policy and suppression process documentation: `docs/ops/trivy-ghcr-policy.md`.
+- Expanded deployment UX docs with prefilled Vercel env link and explicit Redis-mode prompt handling for Render/Vercel guides.
