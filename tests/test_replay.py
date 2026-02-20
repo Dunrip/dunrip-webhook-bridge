@@ -290,6 +290,52 @@ def test_replay_generic_delivery(monkeypatch) -> None:
     assert "Deploy" in sent[0]
 
 
+def test_replay_delivery_routes_through_destinations_when_routes_configured(monkeypatch) -> None:
+    """Replay should use routing engine when app has route config."""
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    async def fail_if_called(_: str) -> None:
+        raise AssertionError("send_message should not be called for routed replay")
+
+    import app.api.replay as replay
+
+    async def fake_route_event(*args, **kwargs):
+        return [{"route": "discord-route", "destination": "discord", "status": "sent"}]
+
+    monkeypatch.setattr(replay, "send_message", fail_if_called)
+    monkeypatch.setattr(replay, "route_event", fake_route_event)
+
+    client.app.state.routes = [object()]
+    response = client.post(f"/deliveries/{ids[0]}/replay")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "delivered"
+    assert storage.failed_deliveries[ids[0]]["status"] == "delivered"
+    assert storage.failed_deliveries[ids[0]]["last_replay_routing"][0]["destination"] == "discord"
+
+
+def test_replay_delivery_routed_failure_keeps_failed_status(monkeypatch) -> None:
+    """Replay should keep failed status when routed destinations fail."""
+    client = _client(monkeypatch)
+    storage = client.app.state.storage
+    ids = _seed_failures(storage)
+
+    import app.api.replay as replay
+
+    async def fake_route_event(*args, **kwargs):
+        return [{"route": "discord-route", "destination": "discord", "status": "failed", "error": "HTTP 429"}]
+
+    monkeypatch.setattr(replay, "route_event", fake_route_event)
+    client.app.state.routes = [object()]
+
+    response = client.post(f"/deliveries/{ids[0]}/replay")
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert storage.failed_deliveries[ids[0]]["status"] == "failed"
+
+
 def test_replay_all_success(monkeypatch) -> None:
     """Replay all accepts and queues all failed deliveries."""
     client = _client(monkeypatch)

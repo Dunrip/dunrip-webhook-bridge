@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 
 from app.core.config import settings
@@ -14,6 +15,7 @@ from app.infra.storage import Storage
 from app.observability.observability import audit_log, fingerprint_api_key
 from app.services.formatters import get_formatter
 from app.services.reliability import payload_hash
+from app.services.routing import Route, route_event
 from app.services.tg_client import TelegramSendError, format_generic, send_message
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,14 @@ def _actor_key_id_from_request(request: Request) -> str:
     return fingerprint_api_key(key)
 
 
-async def _replay_delivery(record: dict[str, Any], storage: Storage, *, override: bool = False) -> str:
+async def _replay_delivery(
+    record: dict[str, Any],
+    storage: Storage,
+    *,
+    routes: list[Route] | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    override: bool = False,
+) -> str:
     now = time.time()
     replay_attempts = int(record.get("replay_attempts") or 0)
     last_replay_at = record.get("last_replay_at")
@@ -96,6 +105,38 @@ async def _replay_delivery(record: dict[str, Any], storage: Storage, *, override
             )
             return "failed"
         message = formatter(payload)
+
+    if routes:
+        results = await route_event(routes, message, event_type, payload, http_client=http_client)
+        any_sent = any(result.get("status") == "sent" for result in results)
+        any_failed = any(result.get("status") == "failed" for result in results)
+
+        if any_sent:
+            await storage.update_failed_delivery(
+                record["id"],
+                {
+                    "status": "delivered",
+                    "last_replay_status": "delivered",
+                    "last_replay_routing": results,
+                },
+            )
+            await storage.upsert_delivery_ledger(source, inbound_delivery_id, record_hash, "delivered")
+            return "delivered"
+
+        updated = await storage.get_failed_delivery(record["id"])
+        attempts = int((updated or {}).get("replay_attempts") or (replay_attempts + 1))
+        new_status = "dead_letter" if attempts >= settings.max_replay_attempts else "failed"
+        reason = "replay_routed_delivery_failed" if any_failed else "replay_no_matching_route"
+        await storage.update_failed_delivery(
+            record["id"],
+            {
+                "status": new_status,
+                "last_replay_status": "failed",
+                "last_replay_routing": results,
+            },
+        )
+        await storage.upsert_delivery_ledger(source, inbound_delivery_id, record_hash, "failed", reason)
+        return new_status
 
     try:
         await send_message(message)
@@ -166,7 +207,9 @@ async def replay_delivery(
             error_code="replay_already_delivered",
             status_code=409,
         )
-    new_status = await _replay_delivery(record, storage, override=override)
+    routes = getattr(request.app.state, "routes", None)
+    http_client = getattr(request.app.state, "http", None)
+    new_status = await _replay_delivery(record, storage, routes=routes, http_client=http_client, override=override)
     audit_log(
         logger,
         action="POST /deliveries/{id}/replay",
@@ -181,7 +224,12 @@ async def replay_delivery(
 
 
 async def _replay_all_background(
-    records: list[dict[str, Any]], storage: Storage, *, override: bool = False
+    records: list[dict[str, Any]],
+    storage: Storage,
+    *,
+    routes: list[Route] | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    override: bool = False,
 ) -> None:
     """Process replay-all deliveries in the background with bounded concurrency."""
     sem = asyncio.Semaphore(10)
@@ -189,7 +237,7 @@ async def _replay_all_background(
     async def _replay_one(record: dict[str, Any]) -> None:
         async with sem:
             try:
-                await _replay_delivery(record, storage, override=override)
+                await _replay_delivery(record, storage, routes=routes, http_client=http_client, override=override)
             except (ValidationError, Exception):
                 logger.warning("Background replay failed for record=%s", record.get("id"))
 
@@ -217,7 +265,16 @@ async def replay_all(
     queued = len(failed)
 
     if queued > 0:
-        background_tasks.add_task(_replay_all_background, failed, storage, override=override)
+        routes = getattr(request.app.state, "routes", None)
+        http_client = getattr(request.app.state, "http", None)
+        background_tasks.add_task(
+            _replay_all_background,
+            failed,
+            storage,
+            routes=routes,
+            http_client=http_client,
+            override=override,
+        )
 
     audit_log(
         logger,
