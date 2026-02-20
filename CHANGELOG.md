@@ -24,6 +24,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - GHCR Trivy gate now distinguishes non-release (`main`) non-blocking scans vs release-tag blocking scans, with CI step summaries.
 - GHCR image build now refreshes pip/setuptools/wheel toolchain in builder/runtime stages to reduce known Trivy CVEs.
 - Trivy GHCR workflow now uses vulnerability scanner mode (`scanners: vuln`) to avoid secret-pattern false positives from package metadata.
+- Discord/Slack destinations now include bounded retry handling (429 + Retry-After + transient network/server failures) and richer destination error classification metadata.
 
 ### Docs
 - Added release checklist smoke verification expansion and operational guidance.

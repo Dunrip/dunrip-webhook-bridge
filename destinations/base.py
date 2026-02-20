@@ -34,6 +34,19 @@ class Destination(abc.ABC):
 class DestinationError(RuntimeError):
     """Raised when a destination fails to deliver a message."""
 
-    def __init__(self, destination: str, detail: str) -> None:
+    def __init__(
+        self,
+        destination: str,
+        detail: str,
+        *,
+        classification: str = "unknown",
+        retryable: bool = False,
+        retry_after_seconds: float | None = None,
+        status_code: int | None = None,
+    ) -> None:
         self.destination = destination
+        self.classification = classification
+        self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
+        self.status_code = status_code
         super().__init__(f"[{destination}] {detail}")
