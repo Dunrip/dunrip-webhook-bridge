@@ -161,6 +161,16 @@ You can configure these via `make wizard`.
   - Preferred: `ADMIN_API_KEYS` (supports either scoped CSV like `key1:read,key2:replay,key3:admin` or a single bare key like `my-admin-key`)
   - Legacy: `ADMIN_API_KEY` (equivalent to one bare admin key)
 
+Optional multi-destination settings:
+- `DISCORD_WEBHOOK_URL` — must be valid `https://.../api/webhooks/...`
+- `SLACK_WEBHOOK_URL` — must be valid `https://hooks.slack.com/services/...`
+- `DESTINATION_FEATURE_FLAGS` — CSV toggles (e.g. `telegram=true,discord=true,slack=false`)
+- `ROUTES_STRICT_VALIDATION` — `true` to fail startup when routes reference unready destinations
+- Destination retry tuning:
+  - `DESTINATION_MAX_RETRIES` (default: `2`)
+  - `DESTINATION_RETRY_BASE_SECONDS` (default: `0.5`)
+  - `DESTINATION_RETRY_MAX_SECONDS` (default: `5.0`)
+
 Generate secure secrets:
 
 ```bash

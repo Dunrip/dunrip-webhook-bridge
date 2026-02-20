@@ -63,6 +63,60 @@ def _is_destination_enabled(name: str) -> bool:
     return _destination_flags().get(name.strip().lower(), True)
 
 
+def _destination_readiness(name: str) -> dict[str, Any]:
+    normalized = name.strip().lower()
+    enabled = _is_destination_enabled(normalized)
+
+    if normalized == "telegram":
+        configured = bool(settings.telegram_bot_token and settings.telegram_chat_id)
+        reason = None
+        if not enabled:
+            reason = "disabled_by_feature_flag"
+        elif not configured:
+            reason = "missing_telegram_config"
+        return {
+            "enabled": enabled,
+            "configured": configured,
+            "ready": enabled and configured,
+            "reason": reason,
+        }
+
+    if normalized == "discord":
+        configured = bool(settings.discord_webhook_url)
+        reason = None
+        if not enabled:
+            reason = "disabled_by_feature_flag"
+        elif not configured:
+            reason = "missing_webhook_url"
+        return {
+            "enabled": enabled,
+            "configured": configured,
+            "ready": enabled and configured,
+            "reason": reason,
+        }
+
+    if normalized == "slack":
+        configured = bool(settings.slack_webhook_url)
+        reason = None
+        if not enabled:
+            reason = "disabled_by_feature_flag"
+        elif not configured:
+            reason = "missing_webhook_url"
+        return {
+            "enabled": enabled,
+            "configured": configured,
+            "ready": enabled and configured,
+            "reason": reason,
+        }
+
+    return {
+        "enabled": enabled,
+        "configured": False,
+        "ready": False,
+        "reason": "unknown_destination",
+    }
+
+
 @dataclass
 class RouteFilter:
     """Criteria that must all match for a route to fire."""
@@ -153,20 +207,13 @@ def register_destination(name: str, factory: Any) -> None:
 def destination_health_snapshot() -> dict[str, Any]:
     """Routing destination snapshot for deep health checks."""
     registered = _DESTINATION_REGISTRY.list_registered()
-    active: list[str] = []
-
-    for name in registered:
-        if not _is_destination_enabled(name):
-            continue
-        if name == "discord" and not settings.discord_webhook_url:
-            continue
-        if name == "slack" and not settings.slack_webhook_url:
-            continue
-        active.append(name)
+    readiness: dict[str, Any] = {name: _destination_readiness(name) for name in registered}
+    active = [name for name, state in readiness.items() if state.get("ready")]
 
     return {
         "registered": registered,
         "active": active,
+        "readiness": readiness,
         "fallback_safe": True,
     }
 
@@ -182,6 +229,23 @@ def _build_destination(name: str, http_client: httpx.AsyncClient | None = None) 
         logger.warning("Unknown destination %r in route config", name)
         return None
     return factory(http_client=http_client)
+
+
+def _validate_route_destination(route: Route) -> None:
+    readiness = _destination_readiness(route.destination_name)
+    if readiness.get("ready"):
+        return
+
+    reason = readiness.get("reason") or "destination_not_ready"
+    message = (
+        f"Route {route.name!r} references destination {route.destination_name!r} "
+        f"which is not ready: {reason}"
+    )
+
+    if settings.routes_strict_validation:
+        raise ValueError(message)
+
+    logger.warning(message)
 
 
 def load_routes(yaml_source: str | None = None) -> list[Route]:
@@ -231,7 +295,9 @@ def load_routes(yaml_source: str | None = None) -> list[Route]:
             repo=filt_raw.get("repo") if isinstance(filt_raw, dict) else None,
             branch=filt_raw.get("branch") if isinstance(filt_raw, dict) else None,
         )
-        routes.append(Route(name=name, destination_name=dest, filter=filt))
+        route = Route(name=name, destination_name=dest, filter=filt)
+        _validate_route_destination(route)
+        routes.append(route)
 
     logger.info("Loaded %d route(s) from config", len(routes))
     return routes

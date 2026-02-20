@@ -5,11 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
+from app.observability.metrics import (
+    DESTINATION_DELIVERY_ATTEMPTS,
+    DESTINATION_DELIVERY_FAILURES,
+    DESTINATION_DELIVERY_LATENCY,
+    DESTINATION_DELIVERY_RETRIES,
+    DESTINATION_RATE_LIMIT_EVENTS,
+)
 from destinations.base import Destination, DestinationError
 
 logger = logging.getLogger(__name__)
@@ -112,8 +120,12 @@ class DiscordDestination(Destination):
                 classification, retryable = _classify_http_status(status_code)
                 retry_after = _retry_after_seconds(exc.response.headers)
 
+                if classification == "rate_limit":
+                    DESTINATION_RATE_LIMIT_EVENTS.labels(destination=self.name).inc()
+
                 if retryable and attempt < max_attempts - 1:
                     delay = _retry_delay(attempt, retry_after)
+                    DESTINATION_DELIVERY_RETRIES.labels(destination=self.name, classification=classification).inc()
                     logger.warning(
                         "Discord delivery retry destination=%s status=%s attempt=%s/%s delay=%.2fs",
                         self.name,
@@ -137,6 +149,7 @@ class DiscordDestination(Destination):
             except httpx.HTTPError as exc:
                 if attempt < max_attempts - 1:
                     delay = _retry_delay(attempt, None)
+                    DESTINATION_DELIVERY_RETRIES.labels(destination=self.name, classification="network").inc()
                     logger.warning(
                         "Discord delivery network retry destination=%s attempt=%s/%s delay=%.2fs error=%s",
                         self.name,
@@ -155,9 +168,17 @@ class DiscordDestination(Destination):
         embed = _build_embed(message, event_type, payload)
         body = {"embeds": [embed]}
 
-        if self._http_client is not None:
-            await self._post_with_retries(self._http_client, body)
-            return
+        DESTINATION_DELIVERY_ATTEMPTS.labels(destination=self.name).inc()
+        start = time.perf_counter()
+        try:
+            if self._http_client is not None:
+                await self._post_with_retries(self._http_client, body)
+                return
 
-        async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
-            await self._post_with_retries(client, body)
+            async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
+                await self._post_with_retries(client, body)
+        except DestinationError as exc:
+            DESTINATION_DELIVERY_FAILURES.labels(destination=self.name, classification=exc.classification).inc()
+            raise
+        finally:
+            DESTINATION_DELIVERY_LATENCY.labels(destination=self.name).observe(time.perf_counter() - start)
