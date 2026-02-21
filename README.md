@@ -239,6 +239,7 @@ Use delivery status queries, logs, and metrics to verify replay completion. Full
 
 - [Multiple repositories → one chat](docs/use-cases-routing.md#multiple-repositories--one-chat)
 - [Multi-chat routing](docs/use-cases-routing.md#multi-chat-routing)
+- [Advanced Discord/Slack route examples](examples/routes.advanced.yaml)
 
 ---
 
@@ -295,6 +296,8 @@ image:
 ## Troubleshooting
 
 Start here for fastest triage: [docs/ops/troubleshooting-decision-tree.md](docs/ops/troubleshooting-decision-tree.md)
+
+Discord/Slack delivery incidents: [docs/ops/discord-slack-troubleshooting.md](docs/ops/discord-slack-troubleshooting.md)
 
 - `make smoke` fails with 401 on admin endpoints:
   - check admin key precedence (`ADMIN_API_KEYS*` overrides `ADMIN_API_KEY`)

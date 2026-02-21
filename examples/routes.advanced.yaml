@@ -1,0 +1,53 @@
+# Advanced routing examples for Discord/Slack GA rollout
+#
+# Use with:
+#   ROUTES_YAML=examples/routes.advanced.yaml
+#
+# Keep a Telegram catch-all while gradually enabling Discord/Slack.
+
+routes:
+  # Safety net: always keep Telegram delivery
+  - name: all-events-telegram
+    destination: telegram
+
+  # Releases for a single repo to Discord
+  - name: releases-repoA-discord
+    destination: discord
+    filter:
+      event_type: release
+      repo: Dunrip/dunrip-webhook-bridge
+
+  # Pushes to main in repo A to Slack
+  - name: repoA-main-pushes-slack
+    destination: slack
+    filter:
+      event_type: push
+      repo: Dunrip/dunrip-webhook-bridge
+      branch: main
+
+  # PR activity from repo B to Discord
+  - name: repoB-prs-discord
+    destination: discord
+    filter:
+      event_type: pull_request
+      repo: Dunrip/supabase-uploader
+
+  # Workflow runs on main branch to Slack
+  - name: ci-main-slack
+    destination: slack
+    filter:
+      event_type: workflow_run
+      branch: main
+
+  # Fanout: same event to both Discord and Slack by defining two routes
+  - name: prod-releases-discord
+    destination: discord
+    filter:
+      event_type: release
+      branch: main
+
+  - name: prod-releases-slack
+    destination: slack
+    filter:
+      event_type: release
+      branch: main
