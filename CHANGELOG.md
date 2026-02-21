@@ -17,6 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Redis backup/restore operations guide: `docs/ops/redis-backup.md`.
 - Compact API reference and routing use-case documentation.
 - Release automation helper script and release template (see upcoming release section updates).
+- Integration coverage for destination webhook delivery paths (Discord/Slack 2xx/4xx/429/5xx via mocked HTTP transports).
 
 ### Changed
 - Improved admin auth env conflict warnings with explicit fix paths.
@@ -35,3 +36,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added replay operations guide with replay-all semantics and verification workflow: `docs/ops/replay-operations.md`.
 - Added Trivy GHCR gate policy and suppression process documentation: `docs/ops/trivy-ghcr-policy.md`.
 - Expanded deployment UX docs with prefilled Vercel env link and explicit Redis-mode prompt handling for Render/Vercel guides.
+- Added Discord/Slack troubleshooting runbook with failure taxonomy and security callouts: `docs/ops/discord-slack-troubleshooting.md`.
+- Added advanced routing configuration example for per-event/per-repo/fanout patterns: `examples/routes.advanced.yaml`.
