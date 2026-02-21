@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
@@ -65,6 +67,7 @@ class Settings(BaseSettings):
     # Multi-destination routing
     routes_yaml: str = ""  # Path to YAML routing config or inline YAML
     destination_feature_flags: str = ""  # CSV: telegram=true,discord=false
+    routes_strict_validation: bool = False  # fail startup when route destination is misconfigured
 
     # Discord destination
     discord_webhook_url: str = ""
@@ -93,6 +96,34 @@ class Settings(BaseSettings):
         if normalized not in {"compact", "detailed"}:
             return "compact"
         return normalized
+
+    @field_validator("discord_webhook_url")
+    @classmethod
+    def _validate_discord_webhook_url(cls, value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlparse(raw)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("DISCORD_WEBHOOK_URL must be a valid https URL")
+        if "/api/webhooks/" not in parsed.path:
+            raise ValueError("DISCORD_WEBHOOK_URL must contain /api/webhooks/")
+        return raw
+
+    @field_validator("slack_webhook_url")
+    @classmethod
+    def _validate_slack_webhook_url(cls, value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlparse(raw)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("SLACK_WEBHOOK_URL must be a valid https URL")
+        if not parsed.netloc.endswith("slack.com"):
+            raise ValueError("SLACK_WEBHOOK_URL host must be slack.com")
+        if not parsed.path.startswith("/services/"):
+            raise ValueError("SLACK_WEBHOOK_URL path must start with /services/")
+        return raw
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

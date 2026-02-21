@@ -77,3 +77,34 @@ ROUTE_DESTINATION_DELIVERIES = _get_or_create_counter(
     "Per-destination delivery outcomes",
     ["destination", "status"],
 )
+
+DESTINATION_DELIVERY_ATTEMPTS = _get_or_create_counter(
+    "destination_delivery_attempts_total",
+    "Outbound destination delivery attempts",
+    ["destination"],
+)
+
+DESTINATION_DELIVERY_FAILURES = _get_or_create_counter(
+    "destination_delivery_failures_total",
+    "Outbound destination delivery failures by classification",
+    ["destination", "classification"],
+)
+
+DESTINATION_DELIVERY_RETRIES = _get_or_create_counter(
+    "destination_delivery_retries_total",
+    "Outbound destination retries by classification",
+    ["destination", "classification"],
+)
+
+DESTINATION_RATE_LIMIT_EVENTS = _get_or_create_counter(
+    "destination_rate_limit_events_total",
+    "Destination rate-limit events",
+    ["destination"],
+)
+
+DESTINATION_DELIVERY_LATENCY = _get_or_create_histogram(
+    "destination_delivery_duration_seconds",
+    "Outbound destination delivery latency",
+    ["destination"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
+)

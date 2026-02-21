@@ -151,6 +151,23 @@ routes:
         routes = load_routes("routes:\n  - name: x\n")
         assert routes[0].destination_name == "telegram"
 
+    def test_load_routes_warns_when_destination_not_ready(self, monkeypatch, caplog):
+        monkeypatch.setattr("app.services.routing.settings.discord_webhook_url", "")
+        monkeypatch.setattr("app.services.routing.settings.routes_strict_validation", False)
+
+        with caplog.at_level("WARNING"):
+            routes = load_routes("routes:\n  - name: d\n    destination: discord\n")
+
+        assert len(routes) == 1
+        assert "not ready" in caplog.text
+
+    def test_load_routes_strict_validation_raises(self, monkeypatch):
+        monkeypatch.setattr("app.services.routing.settings.discord_webhook_url", "")
+        monkeypatch.setattr("app.services.routing.settings.routes_strict_validation", True)
+
+        with pytest.raises(ValueError, match="not ready"):
+            load_routes("routes:\n  - name: d\n    destination: discord\n")
+
 
 # ---------------------------------------------------------------------------
 # route_event
@@ -194,6 +211,8 @@ class TestDestinationBootstrap:
         assert "telegram" in snap["registered"]
         assert "telegram" in snap["active"]
         assert "slack" not in snap["active"]
+        assert snap["readiness"]["slack"]["reason"] == "disabled_by_feature_flag"
+        assert snap["readiness"]["discord"]["reason"] == "missing_webhook_url"
         assert snap["fallback_safe"] is True
 
 
