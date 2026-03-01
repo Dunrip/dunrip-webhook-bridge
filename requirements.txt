@@ -65,7 +65,7 @@ pydantic-settings==2.13.0
     # via dunrip-webhook-bridge
 pyjwt==2.11.0
     # via dunrip-webhook-bridge
-python-dotenv==1.2.1
+python-dotenv==1.2.2
     # via
     #   dunrip-webhook-bridge
     #   pydantic-settings
