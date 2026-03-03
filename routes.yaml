@@ -1,8 +1,0 @@
-routes:
-  # All GitHub events → Discord #github channel
-  - name: all-to-discord
-    destination: discord
-
-  # Also mirror to Telegram as backup
-  - name: all-to-telegram
-    destination: telegram
