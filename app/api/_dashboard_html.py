@@ -319,7 +319,12 @@ DASHBOARD_HTML: str = """<!DOCTYPE html>
             const res = await fetch('/health/deep', {
               headers: { 'X-Api-Key': this.apiKey }
             });
-            if (res.ok) this.health = await res.json();
+            const data = await res.json().catch(() => null);
+            if (data && (res.ok || res.status === 503)) {
+              this.health = data;
+              return;
+            }
+            console.warn('Health fetch unexpected response:', res.status, data);
           } catch (e) {
             console.warn('Health fetch failed:', e);
           }
