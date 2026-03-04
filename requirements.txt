@@ -27,7 +27,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   uvicorn
 cryptography==46.0.5
     # via pyjwt
-fastapi==0.129.0
+fastapi==0.135.1
     # via dunrip-webhook-bridge
 h11==0.16.0
     # via
@@ -61,11 +61,11 @@ pydantic==2.12.5
     #   pydantic-settings
 pydantic-core==2.41.5
     # via pydantic
-pydantic-settings==2.13.0
+pydantic-settings==2.13.1
     # via dunrip-webhook-bridge
 pyjwt==2.11.0
     # via dunrip-webhook-bridge
-python-dotenv==1.2.1
+python-dotenv==1.2.2
     # via
     #   dunrip-webhook-bridge
     #   pydantic-settings
@@ -76,7 +76,7 @@ pyyaml==6.0.3
     # via
     #   dunrip-webhook-bridge
     #   uvicorn
-redis==7.2.0
+redis==7.2.1
     # via dunrip-webhook-bridge
 starlette==0.52.1
     # via fastapi
