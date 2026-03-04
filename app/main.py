@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from app.api.dashboard import router as dashboard_router
 from app.api.replay import router as replay_router
 from app.api.sandbox import router as sandbox_router
 from app.api.webhooks import router as webhooks_router
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
         admin_limit_per_minute=settings.rate_limit_admin_per_minute,
     )
     app.add_middleware(RequestContextMiddleware)
+    app.include_router(dashboard_router)
     app.include_router(webhooks_router)
     app.include_router(sandbox_router)
     app.include_router(replay_router)

@@ -124,6 +124,7 @@ async def stream_logs(
     event_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     repo: str | None = Query(default=None),
+    token: str | None = Query(default=None),
 ) -> None:
     client_ip = get_websocket_client_ip(ws)
 
@@ -144,6 +145,10 @@ async def stream_logs(
         return
 
     auth = authenticate_admin_api_key_headers(ws.headers, required_scope="admin")
+    if not auth.ok and token:
+        auth = authenticate_admin_api_key_headers(
+            {"x-api-key": token}, required_scope="admin"
+        )
 
     if not auth.ok:
         audit_log(
