@@ -177,6 +177,28 @@ async def list_deliveries(
     return {"deliveries": deliveries, "total": total}
 
 
+@router.get("/deliveries/recent")
+async def list_recent_deliveries(
+    request: Request,
+    source: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _auth: str = Depends(require_admin_scope("read")),
+    storage: Storage = Depends(_get_storage),
+) -> dict[str, Any]:
+    records = await storage.list_recent_delivery_ledger(provider=source, status=status, limit=limit)
+    audit_log(
+        logger,
+        action="GET /deliveries/recent",
+        request_id=getattr(request.state, "request_id", "-"),
+        client_ip=get_client_ip(request),
+        auth_result="allow",
+        status="ok",
+        actor_key_id=_actor_key_id_from_request(request),
+    )
+    return {"deliveries": records, "total": len(records)}
+
+
 @router.post("/deliveries/{delivery_id}/replay")
 async def replay_delivery(
     delivery_id: str,

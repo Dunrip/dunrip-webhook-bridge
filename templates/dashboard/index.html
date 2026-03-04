@@ -158,20 +158,21 @@
               <template x-if="!deliveriesLoading && deliveries.length === 0">
                 <tr><td colspan="6" class="text-center py-8 text-gray-600">No deliveries found.</td></tr>
               </template>
-              <template x-for="d in deliveries" :key="d.delivery_id || d.id">
+              <template x-for="d in deliveries" :key="rowKey(d)">
                 <tr class="border-b border-gray-800/50 hover:bg-gray-800/50 transition cursor-pointer"
-                    @click="toggleRow(d.delivery_id || d.id)">
-                  <td class="px-4 py-3 font-mono text-xs text-gray-400" x-text="(d.delivery_id || d.id || '').slice(0, 8)"></td>
-                  <td class="px-4 py-3" x-text="d.source || 'github'"></td>
-                  <td class="px-4 py-3" x-text="d.event_type || d.event || '-'"></td>
+                    @click="toggleRow(rowKey(d))">
+                  <td class="px-4 py-3 font-mono text-xs text-gray-400" x-text="(d.inbound_delivery_id || d.delivery_id || d.id || '').slice(0, 12)"></td>
+                  <td class="px-4 py-3" x-text="d.provider || d.source || 'github'"></td>
+                  <td class="px-4 py-3" x-text="d.reason || d.event_type || d.event || '-'"></td>
                   <td class="px-4 py-3">
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium"
                           :class="statusColor(d.status)" x-text="d.status"></span>
                   </td>
-                  <td class="px-4 py-3 text-gray-400 text-xs" x-text="timeAgo(d.timestamp || d.created_at)"></td>
+                  <td class="px-4 py-3 text-gray-400 text-xs" x-text="timeAgo(deliveryTs(d))"></td>
                   <td class="px-4 py-3 text-right">
                     <button @click.stop="replayDelivery(d.delivery_id || d.id)"
-                            class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded px-2 py-1 transition">
+                            :disabled="!(d.delivery_id || d.id)"
+                            class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs rounded px-2 py-1 transition">
                       Replay
                     </button>
                   </td>
@@ -182,8 +183,8 @@
         </div>
 
         <!-- Expanded Row Payload -->
-        <template x-for="d in deliveries" :key="'detail-' + (d.delivery_id || d.id)">
-          <div x-show="expandedRows[d.delivery_id || d.id]"
+        <template x-for="d in deliveries" :key="'detail-' + rowKey(d)">
+          <div x-show="expandedRows[rowKey(d)]"
                x-transition
                class="bg-gray-950 border-t border-gray-800 px-4 py-3">
             <pre class="text-xs text-gray-400 overflow-auto max-h-64 whitespace-pre-wrap" x-text="JSON.stringify(d, null, 2)"></pre>
@@ -342,7 +343,7 @@
             });
             if (this.deliveriesFilter.source) params.set('source', this.deliveriesFilter.source);
             if (this.deliveriesFilter.status) params.set('status', this.deliveriesFilter.status);
-            const res = await fetch(`/deliveries?${params}`, {
+            const res = await fetch(`/deliveries/recent?${params}`, {
               headers: { 'X-Api-Key': this.apiKey }
             });
             if (res.ok) {
@@ -475,21 +476,31 @@
             const seenIds = new Set(this.logs.map(l => l._id).filter(Boolean));
             const newEntries = this.deliveries
               .filter(d => {
-                const id = d.delivery_id || d.id;
+                const id = this.rowKey(d);
                 return id && !seenIds.has(id);
               })
               .map(d => ({
-                _id: d.delivery_id || d.id,
+                _id: this.rowKey(d),
                 time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-                event_type: d.event_type || d.event || 'delivery',
+                event_type: d.reason || d.event_type || d.event || 'delivery',
                 status: d.status || '',
-                summary: `id=${(d.delivery_id || d.id || '').slice(0, 8)} (polled)`,
+                summary: `id=${this.rowKey(d).slice(0, 12)} (polled)`,
               }));
             if (newEntries.length) {
               this.logs.unshift(...newEntries);
               if (this.logs.length > 200) this.logs.splice(200);
             }
           }, 5000);
+        },
+
+        rowKey(d) {
+          return d.inbound_delivery_id || d.delivery_id || d.id || JSON.stringify(d).slice(0, 64);
+        },
+
+        deliveryTs(d) {
+          const transitions = d.status_transitions || [];
+          if (transitions.length && transitions[transitions.length - 1].at) return transitions[transitions.length - 1].at;
+          return d.first_seen || d.timestamp || d.created_at;
         },
 
         timeAgo(ts) {

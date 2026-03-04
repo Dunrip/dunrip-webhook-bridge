@@ -89,6 +89,15 @@ class Storage(Protocol):
         """Get delivery ledger metadata by provider and inbound delivery id."""
         ...
 
+    async def list_recent_delivery_ledger(
+        self,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List recent delivery ledger records across success + failure statuses."""
+        ...
+
 
 class MemoryStorage:
     """In-memory storage backend for local/dev/test usage."""
@@ -234,6 +243,27 @@ class MemoryStorage:
 
     async def get_delivery_ledger(self, provider: str, inbound_delivery_id: str) -> dict[str, Any] | None:
         return self.delivery_ledger.get(f"{provider}:{inbound_delivery_id}")
+
+    async def list_recent_delivery_ledger(
+        self,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        records = list(self.delivery_ledger.values())
+        if provider:
+            records = [r for r in records if r.get("provider") == provider]
+        if status:
+            records = [r for r in records if r.get("status") == status]
+
+        def _latest_at(record: dict[str, Any]) -> float:
+            transitions = record.get("status_transitions") or []
+            if transitions:
+                return float(transitions[-1].get("at") or 0)
+            return float(record.get("first_seen") or 0)
+
+        records.sort(key=_latest_at, reverse=True)
+        return records[:limit]
 
 
 class RedisStorage:
@@ -419,6 +449,37 @@ class RedisStorage:
             return None
         return json.loads(raw)
 
+    async def list_recent_delivery_ledger(
+        self,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        pattern = f"{self._key_prefix}:ledger:*"
+        records: list[dict[str, Any]] = []
+        async for key in self._redis.scan_iter(match=pattern):
+            raw = await self._redis.get(key)
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if provider and record.get("provider") != provider:
+                continue
+            if status and record.get("status") != status:
+                continue
+            records.append(record)
+
+        def _latest_at(record: dict[str, Any]) -> float:
+            transitions = record.get("status_transitions") or []
+            if transitions:
+                return float(transitions[-1].get("at") or 0)
+            return float(record.get("first_seen") or 0)
+
+        records.sort(key=_latest_at, reverse=True)
+        return records[:limit]
+
 
 class FallbackStorage:
     """Storage wrapper that falls back to memory when primary backend fails."""
@@ -562,6 +623,18 @@ class FallbackStorage:
         except RedisError as exc:
             self._activate_fallback("get_delivery_ledger", exc)
             return await self._fallback.get_delivery_ledger(provider, inbound_delivery_id)
+
+    async def list_recent_delivery_ledger(
+        self,
+        provider: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        try:
+            return await self._primary.list_recent_delivery_ledger(provider=provider, status=status, limit=limit)
+        except RedisError as exc:
+            self._activate_fallback("list_recent_delivery_ledger", exc)
+            return await self._fallback.list_recent_delivery_ledger(provider=provider, status=status, limit=limit)
 
 
 def create_storage_backend(redis_client: Any | None = None) -> Storage:
