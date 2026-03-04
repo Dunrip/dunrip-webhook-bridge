@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Webhook Bridge — Admin Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     .log-stream::-webkit-scrollbar { width: 6px; }
@@ -183,7 +183,7 @@
 
         <!-- Expanded Row Payload -->
         <template x-for="d in deliveries" :key="'detail-' + (d.delivery_id || d.id)">
-          <div x-show="expandedRows.has(d.delivery_id || d.id)"
+          <div x-show="expandedRows[d.delivery_id || d.id]"
                x-transition
                class="bg-gray-950 border-t border-gray-800 px-4 py-3">
             <pre class="text-xs text-gray-400 overflow-auto max-h-64 whitespace-pre-wrap" x-text="JSON.stringify(d, null, 2)"></pre>
@@ -260,7 +260,7 @@
         deliveriesPageSize: 20,
         deliveriesFilter: { source: '', status: '' },
         deliveriesLoading: false,
-        expandedRows: new Set(),
+        expandedRows: {},
         logs: [],
         wsConnected: false,
         wsError: '',
@@ -268,6 +268,7 @@
         _ws: null,
         _healthInterval: null,
         _pollInterval: null,
+        _wsGeneration: 0,
 
         async init() {
           if (this.apiKey) await this.login(true);
@@ -390,16 +391,12 @@
         },
 
         toggleRow(id) {
-          if (this.expandedRows.has(id)) {
-            this.expandedRows.delete(id);
-          } else {
-            this.expandedRows.add(id);
-          }
-          // Trigger Alpine reactivity
-          this.expandedRows = new Set(this.expandedRows);
+          this.expandedRows[id] = !this.expandedRows[id];
+          this.expandedRows = { ...this.expandedRows };
         },
 
         connectWebSocket() {
+          const generation = ++this._wsGeneration;
           if (this._ws) { this._ws.close(); this._ws = null; }
           if (this._pollInterval) { clearInterval(this._pollInterval); this._pollInterval = null; }
 
@@ -441,6 +438,7 @@
             };
 
             ws.onclose = () => {
+              if (generation !== this._wsGeneration) return;
               this.wsConnected = false;
               this._ws = null;
               if (this.authenticated) {
@@ -450,6 +448,7 @@
             };
 
             ws.onerror = () => {
+              if (generation !== this._wsGeneration) return;
               this.wsConnected = false;
               this.wsError = 'WebSocket error. Falling back to polling.';
             };
@@ -465,8 +464,26 @@
 
         startPollingFallback() {
           if (this._pollInterval) clearInterval(this._pollInterval);
-          this._pollInterval = setInterval(() => {
-            if (this.authenticated) this.fetchDeliveries();
+          this._pollInterval = setInterval(async () => {
+            if (!this.authenticated) return;
+            await this.fetchDeliveries();
+            const seenIds = new Set(this.logs.map(l => l._id).filter(Boolean));
+            const newEntries = this.deliveries
+              .filter(d => {
+                const id = d.delivery_id || d.id;
+                return id && !seenIds.has(id);
+              })
+              .map(d => ({
+                _id: d.delivery_id || d.id,
+                time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+                event_type: d.event_type || d.event || 'delivery',
+                status: d.status || '',
+                summary: `id=${(d.delivery_id || d.id || '').slice(0, 8)} (polled)`,
+              }));
+            if (newEntries.length) {
+              this.logs.unshift(...newEntries);
+              if (this.logs.length > 200) this.logs.splice(200);
+            }
           }, 5000);
         },
 
