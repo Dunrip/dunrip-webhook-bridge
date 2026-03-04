@@ -1,0 +1,4 @@
+#!/bin/sh
+# Strip AI-generated Co-Authored-By trailers
+sed -i.bak '/^Co-[Aa]uthored-[Bb]y:.*\(claude\|codex\|anthropic\|openai\|github-actions\[bot\]\)/Id' "$1"
+rm -f "$1.bak"
