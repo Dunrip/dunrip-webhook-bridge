@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_chat_id: str
     github_webhook_secret: str
-    generic_webhook_token: str
+    generic_webhook_token: str = ""
     admin_api_key: str = ""
     admin_api_keys: str = ""  # CSV map: key:scope,key2:scope
     admin_api_keys_active: str = ""  # Rotation active scoped keys

@@ -141,9 +141,16 @@ async def verify_github_signature(request: Request) -> bytes:
 
 
 def verify_generic_token(x_webhook_token: str | None = Header(default=None)) -> str:
+    configured = (settings.generic_webhook_token or "").strip()
+    if not configured:
+        raise AuthenticationError(
+            "Generic webhook token is not configured",
+            error_code="AUTH_NOT_CONFIGURED",
+            status_code=503,
+        )
     if x_webhook_token is None:
         raise AuthenticationError("Missing token header", error_code="AUTH_MISSING_KEY")
-    if not hmac.compare_digest(x_webhook_token, settings.generic_webhook_token):
+    if not hmac.compare_digest(x_webhook_token, configured):
         raise AuthenticationError("Invalid token", error_code="AUTH_INVALID_KEY")
     return x_webhook_token
 
