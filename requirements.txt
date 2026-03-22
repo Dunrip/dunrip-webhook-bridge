@@ -70,7 +70,7 @@ python-dotenv==1.2.2
     #   dunrip-webhook-bridge
     #   pydantic-settings
     #   uvicorn
-python-telegram-bot==22.6
+python-telegram-bot==22.7
     # via dunrip-webhook-bridge
 pyyaml==6.0.3
     # via
