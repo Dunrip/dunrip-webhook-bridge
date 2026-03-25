@@ -16,7 +16,7 @@
 > make first-run
 > ```
 
-Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram-first destinations (Discord/Slack adapters are in progress).
+Production-ready FastAPI service that receives GitHub (and generic) webhooks and forwards formatted notifications to Telegram, Discord, and Slack.
 
 ## Quick Navigation
 
@@ -25,7 +25,7 @@ Production-ready FastAPI service that receives GitHub (and generic) webhooks and
 - **Fast incident triage:** [Operator Troubleshooting Decision Tree](docs/ops/troubleshooting-decision-tree.md)
 - **Release governance:** [Release Checklist](docs/release-checklist.md) + [Weekly KPI Scorecard](docs/ops/kpi-scorecard-template.md)
 
-> **Code layout note:** Canonical runtime modules live under `app/` (for example `app/main.py`).
+> **Code layout note:** Runtime modules live under `app/` with route handlers in `app/api/` (webhooks, replay, dashboard, websocket, sandbox) and destination adapters in `destinations/`.
 
 ---
 
@@ -61,34 +61,19 @@ Commits: 3
 🔗 [View diff](https://github.com/...)
 ```
 
-## Deployment
-
-Deploy in one click:
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge&env=TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GITHUB_WEBHOOK_SECRET,GENERIC_WEBHOOK_TOKEN,ADMIN_API_KEYS,STORAGE_BACKEND,RATE_LIMIT_BACKEND,REDIS_URL&envDescription=Telegram%20bot%20token,Telegram%20destination%20chat%20ID,GitHub%20webhook%20secret,Generic%20webhook%20token,Scoped%20admin%20keys%20CSV,Storage%20backend%20(memory%20or%20redis),Rate-limit%20backend%20(memory%20or%20redis),Redis%20connection%20URL)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Dunrip/dunrip-webhook-bridge)
-
-Redis edge-case: if either backend is set to `redis`, make sure `REDIS_URL` is set as well.
-
-Then follow the full setup guides:
-- Vercel: [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
-- Render: [`docs/deploy-render.md`](docs/deploy-render.md)
-
----
-
 ## What this project does
 
 - Receives GitHub webhook events (push, pull request, issues, release, workflow run, etc.)
 - Verifies signatures and prevents duplicate delivery abuse
-- Sends formatted notifications to Telegram
+- Sends formatted notifications to Telegram, Discord, and Slack
 - Supports replay of failed deliveries
 - Exposes health and metrics endpoints for operations
 
 ### Channel Support Status
 
 - ✅ **Telegram:** fully supported and production-ready
-- 🚧 **Discord:** adapter scaffold present; full production wiring in progress
-- 🚧 **Slack:** adapter scaffold present; full production wiring in progress
+- ✅ **Discord:** fully supported — embeds, retry with backoff, rate-limit handling, Prometheus metrics
+- ✅ **Slack:** fully supported — Block Kit formatting, retry with backoff, rate-limit handling, Prometheus metrics
 
 ---
 
@@ -188,6 +173,13 @@ uv run pytest
 
 `pyproject.toml` + `uv.lock` are the canonical dependency sources. `requirements.txt` is kept for compatibility and is generated from the lockfile.
 
+Pre-commit hooks are configured via `.pre-commit-config.yaml` (linting) and `.githooks/commit-msg` (commit message validation). Install with:
+
+```bash
+pre-commit install
+git config core.hooksPath .githooks
+```
+
 ## Common Commands
 
 ```bash
@@ -209,6 +201,7 @@ make down         # stop services
 
 | Endpoint | Method | Auth | Purpose |
 | --- | --- | --- | --- |
+| `/` | GET | None | Admin dashboard SPA |
 | `/webhook/github` | POST | GitHub HMAC signature | Receive GitHub webhook events |
 | `/webhook/generic` | POST | `X-Webhook-Token` | Receive generic webhook payloads |
 | `/health` | GET | None | Basic liveness check |
@@ -244,7 +237,14 @@ Use delivery status queries, logs, and metrics to verify replay completion. Full
 ---
 
 
-## Deployment Modes
+## Deployment
+
+Deploy in one click:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Dunrip/dunrip-webhook-bridge&env=TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID,GITHUB_WEBHOOK_SECRET,GENERIC_WEBHOOK_TOKEN,ADMIN_API_KEYS,STORAGE_BACKEND,RATE_LIMIT_BACKEND,REDIS_URL&envDescription=Telegram%20bot%20token,Telegram%20destination%20chat%20ID,GitHub%20webhook%20secret,Generic%20webhook%20token,Scoped%20admin%20keys%20CSV,Storage%20backend%20(memory%20or%20redis),Rate-limit%20backend%20(memory%20or%20redis),Redis%20connection%20URL)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Dunrip/dunrip-webhook-bridge)
+
+Redis edge-case: if either backend is set to `redis`, make sure `REDIS_URL` is set as well.
 
 - **Fastest setup:** Vercel (free tier friendly) — see [`docs/deploy-vercel.md`](docs/deploy-vercel.md)
   - For production reliability on serverless, use Redis-backed state (`STORAGE_BACKEND=redis`, `RATE_LIMIT_BACKEND=redis`).
@@ -326,6 +326,14 @@ make smoke
   - Fix: add `- ADMIN_API_KEY=${ADMIN_API_KEY}` under `webhook-bridge.environment` in `deploy/docker-compose.yml`
 - Doctor reports **container key mismatch**
   - Fix: `docker compose -f deploy/docker-compose.yml down && docker compose -f deploy/docker-compose.yml --env-file .env up -d --force-recreate`
+
+---
+
+## Contributing & Governance
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
 
 ---
 
