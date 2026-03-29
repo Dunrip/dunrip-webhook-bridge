@@ -76,7 +76,7 @@ pyyaml==6.0.3
     # via
     #   dunrip-webhook-bridge
     #   uvicorn
-redis==7.2.1
+redis==7.4.0
     # via dunrip-webhook-bridge
 starlette==0.52.1
     # via fastapi
