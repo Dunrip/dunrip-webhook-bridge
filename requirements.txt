@@ -59,7 +59,7 @@ pydantic==2.12.5
     # via
     #   fastapi
     #   pydantic-settings
-pydantic-core==2.41.5
+pydantic-core==2.44.0
     # via pydantic
 pydantic-settings==2.13.1
     # via dunrip-webhook-bridge
