@@ -65,7 +65,7 @@ jobs:
 
       - name: Secrets scan gate
         id: secrets_scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
